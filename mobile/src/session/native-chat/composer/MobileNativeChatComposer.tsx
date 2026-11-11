@@ -39,6 +39,7 @@ import { MobileNativeChatComposerPlanChip } from './commands/MobileNativeChatCom
 import type { MobileNativeChatComposerProps } from './mobile-native-chat-composer-props'
 import { MobileNativeChatMcpTray } from '../mcp/MobileNativeChatMcpTray'
 import { MobileNativeChatQuoteTab } from './quotes/MobileNativeChatQuoteTab'
+import { MobileNativeChatClaudeSessionStatus } from './MobileNativeChatClaudeSessionStatusRow'
 
 const NO_FILE_PATHS: string[] = []
 const NO_ATTACHMENTS: PendingNativeChatImage[] = []
@@ -261,6 +262,7 @@ export function MobileNativeChatComposer({
         {goal.strip}
         {editSession ? null : <MobileNativeChatQuoteTab {...{ value, onChangeText, fieldRef }} />}
         <View {...contextRing.barProps} style={styles.bar} testID="native-chat-composer">
+          <MobileNativeChatClaudeSessionStatus />
           <MobileNativeChatComposerAttachments
             images={attachments}
             files={files}
