@@ -1,3 +1,4 @@
+import type { ClaudeSessionStatus } from '../../../../../../src/shared/native-chat/claude-session-status'
 import type { AgentSessionConversationCommand } from '../../../../../../src/shared/agent-session/conversation-context/agent-session-conversation-command'
 import {
   useCallback,
@@ -38,6 +39,8 @@ import { nativeChatCommandOpensTerminal } from '../../../../../../src/shared/nat
 import { sayMobileNativeChatSessionOption } from './native-chat-session-option-copy'
 
 export type MobileNativeChatSessionOptionsController = {
+  /** Read by the composer's status row; only a terminal-backed Claude chat has one. */
+  claudeSessionStatus?: ClaudeSessionStatus | null
   optionSurface?: SessionOptionsSurface
   conversationCommands?: readonly AgentSessionConversationCommand[]
   compactInstructions?: boolean
@@ -69,6 +72,8 @@ type HookArgs = {
   reportedModel: string | null
   reportedEffort?: string
   reportingSessionId?: string
+  /** The session file's view of the chat, passed through to the composer's status row. */
+  sessionReport?: ClaudeSessionStatus | null
   discoveredModels?: CatalogModel[] | null
   modelSwitchCommand?: string
   dispatchCommand: (
@@ -301,7 +306,14 @@ export function useMobileNativeChatSessionOptions(
   const pendingId = pending && pending.identity === identity ? pending.id : null
 
   return useMemo(
-    () => ({ snapshot, pendingId, setOption, invokeAction, recordCommand }),
-    [snapshot, pendingId, setOption, invokeAction, recordCommand]
+    () => ({
+      snapshot,
+      pendingId,
+      setOption,
+      invokeAction,
+      recordCommand,
+      claudeSessionStatus: args.sessionReport
+    }),
+    [snapshot, pendingId, setOption, invokeAction, recordCommand, args.sessionReport]
   )
 }
