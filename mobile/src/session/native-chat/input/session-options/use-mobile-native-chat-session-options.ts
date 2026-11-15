@@ -37,6 +37,7 @@ import {
 import { setBoundedScopeCacheEntry } from '../../../../../../src/shared/native-chat/input/composer/native-chat-scope-cache'
 import { nativeChatCommandOpensTerminal } from '../../../../../../src/shared/native-chat/input/commands/native-chat-agent-profiles'
 import { sayMobileNativeChatSessionOption } from './native-chat-session-option-copy'
+import { withAnsweringModelLabel } from './mobile-answering-model-label'
 
 export type MobileNativeChatSessionOptionsController = {
   /** Read by the composer's status row; only a terminal-backed Claude chat has one. */
@@ -256,10 +257,19 @@ export function useMobileNativeChatSessionOptions(
     surface
   ])
 
-  const snapshot = useSyncExternalStore(
+  const liveSnapshot = useSyncExternalStore(
     surface?.subscribe ?? subscribeEmpty,
     surface?.getSnapshot ?? getEmptySnapshot,
     surface?.getSnapshot ?? getEmptySnapshot
+  )
+  const fileModel = args.sessionReport?.model ?? null
+  // The catalog names a family; the session file names the version that actually answered.
+  const snapshot = useMemo(
+    () =>
+      fileModel
+        ? liveSnapshot.map((descriptor) => withAnsweringModelLabel(descriptor, fileModel))
+        : liveSnapshot,
+    [fileModel, liveSnapshot]
   )
 
   const track = useCallback(
