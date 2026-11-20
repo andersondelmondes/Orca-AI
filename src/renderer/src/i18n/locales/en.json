@@ -31006,5 +31006,9 @@
     "moveLeft": "Move left",
     "moveRight": "Move right",
     "reset": "Reset tab order"
+  },
+  "openOnHost": {
+    "noRemote": "Add a git remote to open this project on another machine",
+    "updateOrca": "Update Orca on {{host}} to use this"
   }
 }
