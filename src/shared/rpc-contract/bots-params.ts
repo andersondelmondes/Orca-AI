@@ -12,6 +12,7 @@ import {
   BotNameSchema,
   NewBotNameSchema,
   BotNotificationsSchema,
+  BotDiscordSchema,
   BotGitHubSchema,
   BotLinearSchema,
   BotSlackAppSchema,
@@ -29,6 +30,7 @@ import { botMembersFullError, planBotMemberAdds } from '../bots/bot-member-capac
 import { HANDED_WORKSPACES_MAX, HandedWorkspaceSchema } from '../bots/bot-made-for-workspaces'
 import { BotProposalSchema, BotProposalSeedSchema } from '../bots/bot-proposal'
 import { BotTakeOverSchema } from '../bots/bot-take-over'
+import { membersInDiscordGuilds } from '../bots/bot-discord-members'
 import { BotLookAroundSchema, botLookAround, patchLookAround } from '../bots/bot-look-around'
 import { BotLaunchSchema } from '../bots/bot-launch'
 import {
@@ -159,6 +161,8 @@ export const BotUpdate = z.object({
       linear: BotLinearSchema.nullable().optional(),
       linearWorkspaces: z.array(BotLinearSchema).max(BOT_MAX_CONNECTOR_WORKSPACES).optional(),
       github: BotGitHubSchema.nullable().optional(),
+      /** The bot's Discord bot and its servers' limits; a server's people go with it. */
+      discord: BotDiscordSchema.nullable().optional(),
       skillProjects: z.array(z.string().min(1)).max(BOT_MAX_SKILL_PROJECTS).optional(),
       // Only the changed fields; the host merges them into the saved setting.
       lookAround: BotLookAroundSchema.omit({ since: true }).partial().optional(),
@@ -385,6 +389,9 @@ export function applyBotUpdates(bot: Bot, updates: BotHostUpdates): Bot {
         member.workspaceId === undefined ||
         teams.has(member.workspaceId)
     )
+  }
+  if (rest.discord !== undefined) {
+    next.members = membersInDiscordGuilds(next)
   }
   if (rest.linearWorkspaces) {
     next.linear = rest.linearWorkspaces[0] ?? null
