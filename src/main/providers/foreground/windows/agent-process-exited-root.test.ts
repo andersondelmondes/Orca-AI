@@ -180,6 +180,19 @@ describe('resolveWindowsAgentForegroundProcessWithAvailability when the pane roo
     ).resolves.toEqual({ available: false, processName: null })
   })
 
+  it('keeps proof that the cached agent pid was reused when no identity is available', async () => {
+    const reusedAnchor = { pid: 7777, ppid: 4, name: 'notepad.exe', command: 'notepad.exe a.txt' }
+    tableRows.current = [{ ...ORPHAN_SH, command: 'sh.exe' }, ORPHAN_CLAUDE, reusedAnchor]
+    await expect(
+      resolveWindowsAgentForegroundProcessWithAvailability(DEAD_ROOT, 'bash.exe', {
+        ...fresh,
+        anchorProcessId: 7777,
+        anchorProcessName: 'claude',
+        readWindowsConsoleAttachedProcessIds: async () => new Set([5656])
+      })
+    ).resolves.toEqual({ available: false, processName: null, anchorPidForeign: true })
+  })
+
   it('never reads membership through an orphan that opened its own console', async () => {
     tableRows.current = [
       ORPHAN_SH,

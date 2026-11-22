@@ -15,6 +15,7 @@ import {
   type WindowsProcessCandidate,
   type WindowsProcessRow
 } from './process-rows'
+import { isWindowsAnchorPidForeign } from './anchor-pid-reuse'
 import { findOrphanOnInheritedConsole } from './exited-root-orphans'
 
 export type AgentForegroundResolutionOptions = {
@@ -70,6 +71,13 @@ export async function resolveWindowsAgentForegroundProcessWithAvailability(
   if (!inventory) {
     return { available: false, processName: null }
   }
+  const anchorPidForeign = isWindowsAnchorPidForeign(inventory.anchorRow, options.anchorProcessName)
+  // PID-reuse proof outlives an unavailable identity, so the cached agent is not restored over it.
+  const unavailable = {
+    available: false,
+    processName: null,
+    ...(anchorPidForeign ? { anchorPidForeign: true } : {})
+  }
   const candidates = inventory.candidates
   // Filter console membership before ambiguity checks so detached agents cannot suppress the attached input owner.
   const hasRecognizedCandidate = windowsCandidatesContainRecognizedAgent(
@@ -81,28 +89,17 @@ export async function resolveWindowsAgentForegroundProcessWithAvailability(
   const memberPid = inventory.rootExited ? findOrphanOnInheritedConsole(candidates) : undefined
   const { readWindowsConsoleAttachedProcessIds: readConsole } = options
   if (inventory.rootExited && !(hasRecognizedCandidate && memberPid !== undefined && readConsole)) {
-    return { available: false, processName: null }
+    return unavailable
   }
   let filteredCandidates = candidates
   if (hasRecognizedCandidate && readConsole) {
     // Job membership retains detached descendants; only console attachment can exclude their byte authority.
     const consoleProcessIds = await readConsole(memberPid)
     if (!consoleProcessIds) {
-      return { available: false, processName: null }
+      return unavailable
     }
     filteredCandidates = candidates.filter((candidate) => consoleProcessIds.has(candidate.pid))
   }
-  // Orphaned job members can hold recycled PIDs outside the descendant walk; inspect the full-table anchor.
-  const anchorRow = inventory.anchorRow
-  const anchorRecognized = anchorRow === null ? null : recognizeWindowsProcessCandidate(anchorRow)
-  const anchorPidForeign =
-    anchorRow !== null &&
-    (anchorRecognized !== null
-      ? // A recognized row is foreign when it names a DIFFERENT agent.
-        options.anchorProcessName !== undefined &&
-        anchorRecognized.processName !== options.anchorProcessName
-      : // Query-denied command === name is inconclusive, never foreign proof.
-        anchorRow.command !== anchorRow.name)
   const identity = resolveWindowsForegroundIdentity(
     filteredCandidates,
     fallbackProcess,
@@ -110,7 +107,7 @@ export async function resolveWindowsAgentForegroundProcessWithAvailability(
   )
   // Without a live root, no or an ambiguous agent would fall back to the dead shell's name.
   if (inventory.rootExited && !identity.processName) {
-    return { available: false, processName: null }
+    return unavailable
   }
   return { available: true, ...identity, ...(anchorPidForeign ? { anchorPidForeign: true } : {}) }
 }
