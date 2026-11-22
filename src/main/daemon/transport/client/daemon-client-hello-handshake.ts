@@ -1,5 +1,8 @@
 import type { Socket } from 'node:net'
-import { encodeNdjson, NDJSON_MAX_LINE_BYTES } from '../../../../shared/main-process-ndjson-framer'
+import {
+  encodeNdjson,
+  NDJSON_MAX_LINE_BYTES
+} from '../../../../shared/json-stream/main-process-ndjson-framer'
 import {
   BINARY_STREAM_FRAMING,
   type DaemonStreamFraming
@@ -12,6 +15,7 @@ import type {
   HelloResponse
 } from '../../protocol/daemon-hello-protocol'
 import { addNodePtyRecoveryHint } from '../../pty-subprocess/node-pty-error-hints'
+import { startResponsiveDeadline } from './daemon-responsive-deadline'
 
 export type DaemonHelloRequest = {
   socket: Socket
@@ -52,12 +56,10 @@ export function sendDaemonHello(request: DaemonHelloRequest): Promise<DaemonHell
     const chunks: Buffer[] = []
     let bufferedBytes = 0
     let settled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
+    let cancelDeadline: (() => void) | null = null
     const cleanup = (): void => {
-      if (timer) {
-        clearTimeout(timer)
-        timer = null
-      }
+      cancelDeadline?.()
+      cancelDeadline = null
       socket.removeListener('data', onData)
       socket.removeListener('error', onError)
       socket.removeListener('close', onClose)
@@ -126,11 +128,11 @@ export function sendDaemonHello(request: DaemonHelloRequest): Promise<DaemonHell
     const onClose = (): void =>
       finish(new DaemonProtocolError('Connection closed before hello response'))
 
-    timer = setTimeout(() => {
-      // An accepted socket can still be a hung daemon; bound the hello wait.
+    // An accepted socket can still be a hung daemon; bound the hello wait, but not by our own freezes.
+    cancelDeadline = startResponsiveDeadline(timeoutMs, () => {
       finish(new DaemonProtocolError('Hello response timed out'))
       socket.destroy()
-    }, timeoutMs)
+    })
     socket.on('data', onData)
     socket.on('error', onError)
     socket.on('close', onClose)
@@ -142,6 +144,7 @@ function parseDaemonEndpointIdentity(value: unknown): DaemonEndpointIdentity | n
   if (!value || typeof value !== 'object') {
     return null
   }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Only optional unknown fields are projected after the object check; values are validated below.
   const identity = value as {
     pid?: unknown
     startedAtMs?: unknown
@@ -149,6 +152,7 @@ function parseDaemonEndpointIdentity(value: unknown): DaemonEndpointIdentity | n
     entryPath?: unknown
     appVersion?: unknown
     spawnerExecPath?: unknown
+    providerSpawn?: unknown
   }
   if (
     !Number.isSafeInteger(identity.pid) ||
@@ -162,6 +166,7 @@ function parseDaemonEndpointIdentity(value: unknown): DaemonEndpointIdentity | n
     return null
   }
   return {
+    ...(identity.providerSpawn === true ? { providerSpawn: true as const } : {}),
     pid: identity.pid as number,
     startedAtMs: identity.startedAtMs,
     launchNonce: identity.launchNonce,

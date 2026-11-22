@@ -1,3 +1,4 @@
+import type { PtyForegroundGroupReader } from '../../../shared/terminal/pty/ingress/pty-startup-ingress-contract'
 import type { TerminalForegroundSample } from '../../../shared/terminal/pty/lifecycle/terminal-foreground-observation'
 import type { PtyChildProcessVerdict } from '../../../shared/terminal/pty/lifecycle/terminal-process-inspection'
 import type { TerminalExitCause } from '../../../shared/terminal/pty/lifecycle/terminal-exit-cause'
@@ -12,7 +13,11 @@ export type SubprocessHandle = {
   processNameIsSpawnFile?: boolean
   /** The job-control shell is the root's only child (macOS login(1) wrapper), not the root itself. */
   shellIsRootChild?: boolean
-  inspectChildProcesses?(fresh?: boolean, ignoreDetached?: boolean): ChildProcessVerdictRead
+  inspectChildProcesses?(
+    fresh?: boolean,
+    ignoreDetached?: boolean,
+    jobMembershipOnly?: boolean
+  ): ChildProcessVerdictRead
   /** cachedOnly must neither query the process nor schedule inspection. */
   getForegroundProcess(options?: { rawFallback?: boolean; cachedOnly?: boolean }): string | null
   /** Await process-table evidence captured after this confirmation request. */
@@ -25,6 +30,8 @@ export type SubprocessHandle = {
   shellPath?: string
   shellCwd?: string
   shellPathEnv?: string
+  /** The PTY's foreground process group (tcgetpgrp); absent for ConPTY. */
+  readForegroundGroup?: PtyForegroundGroupReader
   /** POSIX slave path for reading line discipline; absent for ConPTY. */
   slavePath?: string
   write(data: string): void
@@ -33,6 +40,8 @@ export type SubprocessHandle = {
   /** Fires once when input closes for a reason other than child exit. */
   onInputClosed?(cb: (reason: string) => void): void
   resize(cols: number, rows: number): void
+  /** WinPTY scrapes the console and redraws it itself on a resize, so no repaint there is the program's. */
+  resizeRedrawsOwnScreen?: true
   /** Omit pause when the handle cannot apply PTY backpressure. */
   pause?(): void
   resume?(): void
