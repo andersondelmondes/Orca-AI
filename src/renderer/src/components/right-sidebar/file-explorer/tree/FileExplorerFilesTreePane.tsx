@@ -24,7 +24,6 @@ type FileExplorerFilesTreePaneProps = {
   worktreePath: string | null
   displayRootPath: string | null
   explorerView: RightSidebarExplorerView
-  activeFileId: string | null
   hasNameFilter: boolean
   nameFilterSource: FileExplorerNameFilterProjectionSource | null
   nameFilterFiles: RuntimeFileListState
@@ -47,7 +46,6 @@ export function FileExplorerFilesTreePane({
   worktreePath,
   displayRootPath,
   explorerView,
-  activeFileId,
   hasNameFilter,
   nameFilterSource,
   nameFilterFiles,
@@ -212,7 +210,6 @@ export function FileExplorerFilesTreePane({
           canCollapseFolderSubtree={!hasNameFilter}
           loadingDirPaths={loadingDirPaths}
           selectedPaths={selectedPaths}
-          activeFileId={activeFileId}
           flashingPath={flashingPath}
           deleteShortcutLabel={deletion.deleteShortcutLabel}
           connectionId={activeRepo?.connectionId ?? null}

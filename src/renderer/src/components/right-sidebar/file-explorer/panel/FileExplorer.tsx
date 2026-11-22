@@ -315,7 +315,6 @@ function FileExplorerFiles(): React.JSX.Element {
             activeRepo={activeRepo}
             worktreePath={worktreePath}
             explorerView={explorerView}
-            activeFileId={activeFileId}
             hasNameFilter={hasNameFilter}
             nameFilterSource={nameFilterSource}
             nameFilterFiles={nameFilterFiles}

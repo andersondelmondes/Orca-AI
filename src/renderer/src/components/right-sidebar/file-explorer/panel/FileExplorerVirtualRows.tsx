@@ -28,7 +28,6 @@ type FileExplorerVirtualRowsProps = {
   canCollapseFolderSubtree?: boolean
   loadingDirPaths: ReadonlySet<string>
   selectedPaths: Set<string>
-  activeFileId: string | null
   flashingPath: string | null
   deleteShortcutLabel: string
   connectionId?: string | null
@@ -116,7 +115,6 @@ export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): Re
     canCollapseFolderSubtree = true,
     loadingDirPaths,
     selectedPaths,
-    activeFileId,
     flashingPath,
     deleteShortcutLabel,
     connectionId,
@@ -224,7 +222,7 @@ export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): Re
               isExpanded={expanded.has(n.path)}
               isLoading={n.isDirectory && loadingDirPaths.has(n.path)}
               loadError={n.isDirectory ? (dirCache?.[n.path]?.error ?? null) : null}
-              isSelected={selectedPaths.has(n.path) || activeFileId === n.path}
+              isSelected={selectedPaths.has(n.path)}
               selectedPaths={selectedPaths}
               isFlashing={flashingPath === n.path}
               nodeStatus={nodeStatus}
