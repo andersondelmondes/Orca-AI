@@ -103,7 +103,7 @@ export async function startWorker(
     withOpenQuestion(reminder, withQuestionLink(questionLink, started))
   const mode = decideWorkerStartMode({
     params,
-    settings: readWorkerStartModeSettings(runtime)
+    settings: readWorkerStartModeSettings(runtime, params.agent)
   })
   if (params.on) {
     // Remote workers are terminal-only; carry the mode receipt to explain structured-preference fallback.
