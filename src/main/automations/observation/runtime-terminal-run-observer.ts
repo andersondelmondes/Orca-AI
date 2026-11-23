@@ -19,6 +19,7 @@ import {
   type IdleRunVerdict
 } from './automation-run-agent-evidence'
 import { readProvenTerminalExit } from '../../runtime/terminal/wait/terminal-wait-results'
+import { observeAcrossStaleHandles, sleep } from './stale-terminal-handle-recovery'
 
 const TERMINAL_SNAPSHOT_LIMIT = 2_000
 
@@ -128,24 +129,6 @@ function isGraphUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message === 'runtime_unavailable'
 }
 
-async function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new Error('request_aborted'))
-      return
-    }
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      reject(new Error('request_aborted'))
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 /** Reuse runtime idle detection across sticky status, pane titles and ready shell prompts. */
 async function isTuiIdleSatisfiedNow(
   runtime: AutomationRunTerminalHost,
@@ -248,7 +231,13 @@ export function createRuntimeAutomationRunTerminalObserver(
       const judged =
         evidence && run?.terminalPaneKey ? captureRunAgentTurn(evidence, run, runStartedAt) : null
       try {
-        return await observeTerminalRun(runtime, handle, signal, judged, startedAt, runStartedAt)
+        return await observeAcrossStaleHandles(
+          handle,
+          () =>
+            run?.terminalPaneKey ? runtime.getTerminalHandleForPaneKey(run.terminalPaneKey) : null,
+          signal,
+          (current) => observeTerminalRun(runtime, current, signal, judged, startedAt, runStartedAt)
+        )
       } finally {
         judged?.stop()
       }
