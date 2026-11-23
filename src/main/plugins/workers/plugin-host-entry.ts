@@ -1,8 +1,12 @@
 // ELECTRON_RUN_AS_NODE entry: imports must stay transitively Electron-free.
+import { getCACertificates, setDefaultCACertificates } from 'node:tls'
 import { createPluginWorkerRuntime } from './child-runtime/plugin-host-runtime'
 import { registerPluginWorkerSourceHooks } from './child-runtime/plugin-worker-source-hooks'
 import { pluginWorkerFatal } from '../../../shared/plugins/workers/plugin-host-protocol'
 import type { PluginEnvelope } from '../../../shared/plugins/frames/plugin-protocol'
+
+// ELECTRON_RUN_AS_NODE disables NODE_EXTRA_CA_CERTS/NODE_OPTIONS; include OS-trusted CAs.
+setDefaultCACertificates([...getCACertificates('default'), ...getCACertificates('system')])
 
 function sendToParent(message: PluginEnvelope): void {
   process.send?.(message)
