@@ -132,4 +132,27 @@ describe('pointers for mail an earlier pointer already announced (#41854)', () =
       vi.useRealTimers()
     }
   })
+
+  it('drops an exited PTY hold so a process reusing its id gets its pointer', async () => {
+    vi.useFakeTimers()
+    const db = new OrchestrationDb(':memory:')
+    try {
+      const writePty = vi.fn(() => WRITE_ACCEPTED)
+      const delivery = new OrchestrationMailboxPointerDelivery<never>(
+        pointerDeps(db, writePty) as never
+      )
+      db.insertMessage({ from: 'a', to: 'run:run-1', subject: 'A' })
+      await deliverAndSubmit(delivery)
+      delivery.observeAgentWorking('pty-1')
+      delivery.forgetExitedPty('pty-1')
+
+      db.insertMessage({ from: 'b', to: 'run:run-1', subject: 'B' })
+      await deliverAndSubmit(delivery)
+
+      expect(pointerTexts(writePty)).toHaveLength(2)
+    } finally {
+      db.close()
+      vi.useRealTimers()
+    }
+  })
 })
