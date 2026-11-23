@@ -32,6 +32,7 @@ import type { CodexStructuredLaunch } from '../session-lifecycle/codex-structure
 import { codexStructuredPermissionPolicy } from '../../../../shared/agent-launch/permissions/codex-permission-policy'
 import { codexStructuredLaunchArgs } from './codex-structured-launch-args'
 import { codexReadOnlyThreadConfig } from '../prompts/codex-structured-read-only'
+import { isSlackExecutionId } from '../../../native-chat/agent-session-wire/operations/slack-execution-authority'
 import { codexOrcaHooksOffArgs } from './codex-structured-orca-hooks-off'
 import { getSystemCodexHomePath } from '../../configuration/homes/codex-home-paths'
 import {
@@ -173,7 +174,7 @@ export function codexStructuredLaunchPart(
     const tools = await basis.toolServers()
     const codexHome = accountHome.path || environment?.CODEX_HOME || getSystemCodexHomePath()
     const threadConfig = basis.readOnly
-      ? codexReadOnlyThreadConfig(basis.readOnly)
+      ? codexReadOnlyThreadConfig(basis.readOnly, isSlackExecutionId(record.sessionId))
       : tools.servers.length > 0
         ? codexBotToolsThreadConfig(tools, await readCodexStdioToolNames(codexHome))
         : null
@@ -190,6 +191,7 @@ export function codexStructuredLaunchPart(
       ))
     return {
       launch: {
+        ...(basis.slackMemory ? { slackMemory: basis.slackMemory } : {}),
         command,
         prefixArgs,
         // A custom command may be a wrapper that depends on its folder; it never shares a server.
