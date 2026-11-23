@@ -117,7 +117,8 @@ const StartedOnServer = z.object({
   run: z.object({ id: z.string().min(1) }).optional(),
   agent: z.string().nullable().optional(),
   launch: z.unknown().optional(),
-  state: z.string().optional()
+  state: z.string().optional(),
+  lastError: z.string().nullable().optional()
 })
 
 /**
@@ -245,7 +246,10 @@ export async function startRemoteOwnedWorker(
       dispatchId: started.data.dispatchId,
       taskId: task.id,
       workerAddress: `dispatch:${started.data.dispatchId}`,
-      task: task.spec
+      task: task.spec,
+      ...(started.data.state === 'failed'
+        ? { failure: started.data.lastError || 'The start failed.', machine: server.name }
+        : {})
     })
   }
   const answer = inServerTerms(receipt, { server: server.name, forward })

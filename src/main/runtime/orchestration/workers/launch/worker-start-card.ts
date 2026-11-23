@@ -13,6 +13,7 @@ import {
   type OrchestrationEntryCaller
 } from '../../addressing/orchestration-caller-identity'
 import { botWorkHostOf, prepareBotWorkerStart } from '../../../../bots/bot-work-runtime'
+import { postFailedBotWorkerStart } from '../../../../bots/bot-worker-start-failure'
 
 export type AgentCreationCard = AgentJournalAgentStartItem | AgentJournalAgentHandoffItem
 
@@ -58,7 +59,7 @@ export function startedAgentSender(
   return sender.agent || !agent ? sender : { ...sender, agent }
 }
 
-type WorkerStarted = {
+export type WorkerStarted = {
   /** False for a start whose outcome is unknown: it may yet turn out ready, so a bot still records
    *  it, but the chat shows no card for it. */
   ready: boolean
@@ -69,6 +70,10 @@ type WorkerStarted = {
   /** What this start launched; the only kind known for a worker on another host. */
   agent?: AgentType | null
   followUp?: AgentJournalAgentStartItem['followUp']
+  /** The paired server this start ran on; absent for a local start. */
+  machine?: string
+  /** A failed start has no worker card, but a bot's Slack thread still needs its one failure notice. */
+  failure?: string
 }
 
 /** A remote worker's start, addressed by its Dispatch: the only address this host knows. */
@@ -105,6 +110,9 @@ export function prepareWorkerStartCard(
     },
     callerSession
   )
+  const failureTurn = callerSession
+    ? runtime.botWork.turnOf(callerSession.sessionId).catch(() => null)
+    : Promise.resolve(null)
   return (args) => {
     if (args.ready && publish) {
       publish(() => ({
@@ -120,12 +128,34 @@ export function prepareWorkerStartCard(
         ...(args.followUp ? { followUp: args.followUp } : {})
       }))
     }
-    if (groupWork) {
+    if (groupWork && !args.failure) {
       void groupWork.groups
         .recordWorker(groupWork.operation, args.dispatchId)
         .catch(logStartCardFailure)
     }
-    botWork(args)
+    const failure = args.failure
+    if (!failure) {
+      botWork(args)
+      return
+    }
+    void failureTurn
+      .then((turn) =>
+        postFailedBotWorkerStart(
+          turn,
+          {
+            taskId: args.taskId,
+            reason: failure,
+            machine: args.machine
+          },
+          async (input) => {
+            const sent = await runtime.getConnectorCloud()?.reply({ ...input, turnId: Date.now() })
+            if (sent && !sent.ok) {
+              logStartCardFailure(sent)
+            }
+          }
+        )
+      )
+      .catch(logStartCardFailure)
   }
 }
 
@@ -150,7 +180,21 @@ export function recordWorkerStartOutcome(
 ): void {
   const state = outcome && typeof outcome === 'object' && 'state' in outcome ? outcome.state : null
   const { reusedTerminal, workerAddress, ...card } = started
-  if (!reusedTerminal && workerAddress && (state === 'ready' || state === 'outcome_unknown')) {
+  if (state === 'failed') {
+    const lastError =
+      outcome && typeof outcome === 'object' && 'lastError' in outcome ? outcome.lastError : null
+    const reason = typeof lastError === 'string' && lastError ? lastError : 'The start failed.'
+    record({
+      ...card,
+      workerAddress: workerAddress ?? `dispatch:${card.dispatchId}`,
+      ready: false,
+      failure: reason
+    })
+  } else if (
+    !reusedTerminal &&
+    workerAddress &&
+    (state === 'ready' || state === 'outcome_unknown')
+  ) {
     record({ ...card, workerAddress, ready: state === 'ready' })
   }
 }
