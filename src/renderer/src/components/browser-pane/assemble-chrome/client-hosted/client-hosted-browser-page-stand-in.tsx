@@ -38,7 +38,7 @@ export function ClientHostedBrowserPageStandIn({
   }
   return (
     <BrowserNewTabPage
-      worktreeId={worktreeId}
+      page={{ id: browserPageId, worktreeId }}
       onOpenUrl={onOpenUrl}
       serversElsewhere
       importProfileId={browserProfileId}
