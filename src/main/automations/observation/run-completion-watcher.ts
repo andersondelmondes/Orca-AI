@@ -32,11 +32,11 @@ export function describeStrandedAutomationRun(run: AutomationRun): string {
   return 'Orca lost the terminal for this run before it reported completion.'
 }
 
-// Runtime failures are snake_case codes; anything else may carry transport tokens, so only a code is persisted.
-const OBSERVATION_ERROR_CODE = /^[a-z][a-z0-9_]{2,63}$/
+// Runtime failure codes are snake_case words; a bare token or a sentence may carry transport data.
+const OBSERVATION_ERROR_CODE = /^[a-z]+(?:_[a-z0-9]+){1,8}$/
 
 // Log transport tokens while keeping run history readable.
-export function describeObservationError(error: unknown): string {
+function describeObservationError(error: unknown): string {
   console.error('[automations] run completion observation failed:', error)
   const code =
     error instanceof Error && OBSERVATION_ERROR_CODE.test(error.message) ? error.message : null

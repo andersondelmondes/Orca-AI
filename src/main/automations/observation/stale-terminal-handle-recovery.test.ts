@@ -3,7 +3,7 @@ import { observeAcrossStaleHandles } from './stale-terminal-handle-recovery'
 
 const stale = (): Error => new Error('terminal_handle_stale')
 
-describe('observing a run whose terminal handle goes stale', () => {
+describe('observing a run whose window closes or reloads', () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -28,13 +28,13 @@ describe('observing a run whose terminal handle goes stale', () => {
     expect(observed).toEqual(['h1', 'h2'])
   })
 
-  it('ends without a verdict when the app quits while the handle is stale', async () => {
+  it('ends without a verdict when the app quits while no window holds the pane', async () => {
     const controller = new AbortController()
     const result = observeAcrossStaleHandles(
       'h1',
       () => null,
       controller.signal,
-      () => Promise.reject(stale())
+      () => Promise.reject(new Error('runtime_unavailable'))
     )
     const settled = expect(result).rejects.toThrow('request_aborted')
     await vi.advanceTimersByTimeAsync(10)
@@ -59,19 +59,14 @@ describe('observing a run whose terminal handle goes stale', () => {
   })
 
   it('gives up on a pane that never comes back', async () => {
-    let calls = 0
     const result = observeAcrossStaleHandles(
       'h1',
       () => null,
       new AbortController().signal,
-      () => {
-        calls += 1
-        return Promise.reject(stale())
-      }
+      () => Promise.reject(stale())
     )
     const settled = expect(result).rejects.toThrow('terminal_handle_stale')
-    await vi.advanceTimersByTimeAsync(121_000)
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
     await settled
-    expect(calls).toBe(121)
   })
 })

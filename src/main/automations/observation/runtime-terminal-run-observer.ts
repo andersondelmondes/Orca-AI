@@ -231,13 +231,17 @@ export function createRuntimeAutomationRunTerminalObserver(
       const judged =
         evidence && run?.terminalPaneKey ? captureRunAgentTurn(evidence, run, runStartedAt) : null
       try {
-        return await observeAcrossStaleHandles(
-          handle,
-          () =>
-            run?.terminalPaneKey ? runtime.getTerminalHandleForPaneKey(run.terminalPaneKey) : null,
-          signal,
-          (current) => observeTerminalRun(runtime, current, signal, judged, startedAt, runStartedAt)
-        )
+        const observe = (current: string): Promise<AutomationRunCompletionObservation> =>
+          observeTerminalRun(runtime, current, signal, judged, startedAt, runStartedAt)
+        // Without agent evidence a restart would repeat the busy-edge check and misread a started agent.
+        return await (judged
+          ? observeAcrossStaleHandles(
+              handle,
+              () => runtime.getTerminalHandleForPaneKey(judged.run.terminalPaneKey ?? ''),
+              signal,
+              observe
+            )
+          : observe(handle))
       } finally {
         judged?.stop()
       }

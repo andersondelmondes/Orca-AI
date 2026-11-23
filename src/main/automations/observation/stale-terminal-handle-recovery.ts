@@ -1,6 +1,8 @@
-const STALE_HANDLE_RETRY_MS = 1_000
-/** Bound recoveries per observation; past it a pane that never comes back fails the run as before. */
-const STALE_HANDLE_MAX_RETRIES = 120
+const RETRY_MS = 1_000
+// Past this a pane that never comes back fails the run as before.
+const MAX_RETRIES = 120
+// A closed or reloading window rejects with these; neither says the run's pane is gone.
+const WINDOW_RETIRED = new Set(['terminal_handle_stale', 'runtime_unavailable'])
 
 export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -20,8 +22,7 @@ export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** A closing or reloading window retires its handles, not the run's pane, so look the pane up again and keep
- *  observing. Quitting closes the window before it aborts the watch; the next start reattaches the run. */
+// Quitting closes the window before it aborts the watch, so a retry must outlast that gap; the next start reattaches.
 export async function observeAcrossStaleHandles<T>(
   initialHandle: string,
   resolveHandle: () => string | null,
@@ -33,11 +34,11 @@ export async function observeAcrossStaleHandles<T>(
     try {
       return await observe(handle)
     } catch (error) {
-      const stale = error instanceof Error && error.message === 'terminal_handle_stale'
-      if (signal.aborted || !stale || retries >= STALE_HANDLE_MAX_RETRIES) {
+      const retired = error instanceof Error && WINDOW_RETIRED.has(error.message)
+      if (signal.aborted || !retired || retries >= MAX_RETRIES) {
         throw error
       }
-      await sleep(STALE_HANDLE_RETRY_MS, signal)
+      await sleep(RETRY_MS, signal)
       handle = resolveHandle() ?? handle
     }
   }
