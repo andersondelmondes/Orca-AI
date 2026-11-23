@@ -289,7 +289,7 @@ export async function initializeReadyFoundation(): Promise<void> {
   }
   // Install the proxy resolver before partitions materialize.
   setBrowserNetworkProxySettingsResolver(() => nativeSettings.getSettings())
-  installPreviewProtocolHandlers()
+  installPreviewProtocolHandlers(store)
   registerDocPreviewGrantHandlers()
   // Session setup needs the extension support decision before loading profiles.
   initializeBrowserExtensionSupport({

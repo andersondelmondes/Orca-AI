@@ -365,7 +365,7 @@ export function NativeChatStructuredSession(props: Omit<NativeChatStructuredView
                 statedFailures={startFailures}
                 steerHeld={bot.stopControls.stopping || hostHeld}
                 focusComposer={focusComposer}
-                editAttachTo={{ terminalTabId: props.tabId, agent: props.agent, transport }}
+                editAttachTo={{ ...props, terminalTabId: props.tabId, transport }}
               />
               <NativeChatStructuredPromptCard
                 key={prompt ? `${prompt.itemId}:${prompt.revision}` : undefined}
@@ -390,6 +390,7 @@ export function NativeChatStructuredSession(props: Omit<NativeChatStructuredView
               {composerShown ? (
                 <NativeChatComposer
                   ref={composerRef}
+                  isVisible={props.isVisible}
                   terminalTabId={props.tabId}
                   paneKey={paneKey}
                   draftScopeKey={structuredAgentSessionDraftScopeKey(props.sessionId)}
