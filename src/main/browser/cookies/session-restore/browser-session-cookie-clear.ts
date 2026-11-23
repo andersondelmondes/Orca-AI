@@ -16,10 +16,11 @@ export async function clearBrowserCookieJar(target: Session): Promise<void> {
 /**
  * For a cookie clear: what it removed leaves Chromium's store and the saved session cookies now,
  * not at their next commit up to 30 s later, so a crash before then can't sign pages back in.
+ * Exception: a partial clear leaves a file this launch could not read, since its other sites are unknown.
  */
 export async function persistBrowserCookieClear(
   target: Session,
-  cleared: (cookie: CdpCookie) => boolean = () => true
+  partial?: (cookie: CdpCookie) => boolean
 ): Promise<void> {
   await target.cookies.flushStore()
   const tracker = sessionCookieTrackerFor(target)
@@ -30,6 +31,12 @@ export async function persistBrowserCookieClear(
   await queueSnapshotWrite(tracker, async () => {
     // A profile deleted meanwhile already lost its file.
     if (sessionCookieTrackerFor(target) !== tracker) {
+      return
+    }
+    const cleared = partial ?? (() => true)
+    // An unreadable file's other sites are unknown: leave it for the next save, which reads the jar.
+    if (tracker.savedUnknown && partial) {
+      scheduleSave(tracker)
       return
     }
     const saved = [...tracker.saved.values()].flat()
