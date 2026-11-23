@@ -7,15 +7,28 @@ import { nativeChatShowsPromptSuggestions } from '../../../../shared/native-chat
 
 /** Per-agent chat gates read from this host's current settings. */
 export function structuredAgentSettingGates(
-  getSettings: () => ReturnType<RuntimeStore['getSettings']>
+  readStore: () => RuntimeStore
 ): Pick<
   StructuredAgentSessionRuntimeDeps,
-  'resolveAgentFullAccess' | 'piManagedExtensionsEnabled' | 'nativeChatPromptSuggestions'
+  | 'resolveAgentFullAccess'
+  | 'piManagedExtensionsEnabled'
+  | 'nativeChatPromptSuggestions'
+  | 'transientRecovery'
 > {
+  const getSettings = () => readStore().getSettings()
   return {
     resolveAgentFullAccess: (agent) =>
       isTuiAgent(agent) && preModeChatGetsFullAccess(agent, getSettings(), process.platform),
     piManagedExtensionsEnabled: () => isAgentStatusHooksEnabledForAgent(getSettings(), 'pi'),
-    nativeChatPromptSuggestions: () => nativeChatShowsPromptSuggestions(getSettings())
+    nativeChatPromptSuggestions: () => nativeChatShowsPromptSuggestions(getSettings()),
+    transientRecovery: {
+      enabled: () => getSettings().nativeChatAutoContinueOnTransientError === true,
+      onDisabled: (listener) =>
+        readStore().onSettingsChanged?.((updates) => {
+          if (updates.nativeChatAutoContinueOnTransientError === false) {
+            listener()
+          }
+        }) ?? (() => {})
+    }
   }
 }

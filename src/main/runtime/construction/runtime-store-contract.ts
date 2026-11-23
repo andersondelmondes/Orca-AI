@@ -228,6 +228,7 @@ export type RuntimeStore = {
     nativeChatAutoContinueAfterUsageLimit?: GlobalSettings['nativeChatAutoContinueAfterUsageLimit']
     nativeChatIdleStopMinutes?: GlobalSettings['nativeChatIdleStopMinutes']
     nativeChatInlineVisuals?: GlobalSettings['nativeChatInlineVisuals']
+    nativeChatAutoContinueOnTransientError?: GlobalSettings['nativeChatAutoContinueOnTransientError']
     nativeChatPromptSuggestions?: GlobalSettings['nativeChatPromptSuggestions']
     nativeChatInheritShellEnvironment?: GlobalSettings['nativeChatInheritShellEnvironment']
     nativeChatShellEnvironmentVariables?: GlobalSettings['nativeChatShellEnvironmentVariables']

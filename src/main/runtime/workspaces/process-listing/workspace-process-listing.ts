@@ -273,7 +273,7 @@ export abstract class OrcaRuntimeWithGetWorktreePs extends RuntimeChatWorkerEven
       nativeChatVisuals: {
         isEnabled: () => this.requireStore().getSettings().nativeChatInlineVisuals !== false
       },
-      ...structuredAgentSettingGates(() => this.requireStore().getSettings()),
+      ...structuredAgentSettingGates(() => this.requireStore()),
       launchAccountHome: (record, purpose) =>
         this.resolveStructuredAgentLaunchAccountHome(record, purpose),
       prepareLaunchAccountHome: (record, launchDirectory) =>
