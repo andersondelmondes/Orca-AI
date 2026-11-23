@@ -478,7 +478,8 @@
 1 src/main/daemon/transport/stream/daemon-stream-keep-tail-drop.ts
 6 src/main/devin/hook-service.ts
 2 src/main/diagnostics/main-thread-churn-probe.ts
-6 src/main/droid/hook-service.ts
+1 src/main/droid/droid-org-policy.ts # install and status check: the org settings file decides whether managed hooks can load
+7 src/main/droid/hook-service.ts # install and status check: Droid reads hooks from both hooks.json and legacy settings.json; was 6
 11 src/main/dsh/hook-service.ts
 2 src/main/emulator/android/android-avd-boot.ts
 2 src/main/emulator/android/android-command-runner.ts
@@ -1518,13 +1519,16 @@
 2 src/shared/agent-hook-listener/command-code-transcript.ts
 3 src/shared/agent-hook-listener/grok-result-discovery.ts
 1 src/shared/agent-hook-listener/normalization/normalize-hook-payload.ts
-4 src/shared/agent-hook-listener/pane-provider-session.ts
+2 src/shared/agent-hook-listener/pane-provider-session.ts
 4 src/shared/agent-hook-listener/provider-dispatch.ts
 7 src/shared/agent-hook-listener/providers/codex/codex-events.ts
 1 src/shared/agent-hook-listener/providers/codex/codex-subagent-identity.ts
 1 src/shared/agent-hook-listener/providers/codex/codex-subagent-reviewer.ts
 2 src/shared/agent-hook-listener/providers/codex/codex-subagent-roster.ts
 3 src/shared/agent-hook-listener/providers/codex/codex-subagent-transcript.ts
+1 src/shared/agent-hook-listener/providers/droid/droid-hook-session.ts # moved from pane-provider-session.ts: a hook from a session other than the pane owner checks for a sub-droid caller
+1 src/shared/agent-hook-listener/providers/droid/droid-sessions.ts # once per SessionStart or unseen session: Droid names a child's caller only in its transcript's first record
+1 src/shared/agent-hook-listener/providers/droid/droid-transcript-origin.ts # moved from pane-provider-session.ts: bounded first-record transcript read
 1 src/shared/agent-hook-listener/providers/grok/grok-session-paths.ts
 1 src/shared/agent-hook-listener/providers/grok/grok-tool-fields.ts
 3 src/shared/agent-hook-listener/providers/jcode/jcode-session-files.ts
