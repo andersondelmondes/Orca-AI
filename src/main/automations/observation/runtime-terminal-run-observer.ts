@@ -3,7 +3,10 @@ import type {
   AutomationRunCompletionObservation,
   AutomationRunTerminalObserver
 } from './run-completion-watcher'
-import type { AutomationRunOutputSnapshot } from '../../../shared/automations/history/automation-run'
+import type {
+  AutomationRun,
+  AutomationRunOutputSnapshot
+} from '../../../shared/automations/history/automation-run'
 import {
   AUTOMATION_RUN_FAILURE_COPY,
   automationRunFailure,
@@ -37,6 +40,7 @@ const OBSERVE_DEADLINE_MS = 6 * 60 * 60 * 1000
 
 export type AutomationRunTerminalHost = {
   getTerminalHandleForPaneKey(paneKey: string): string | null
+  getTerminalPtyIdForHandle(handle: string): string | null
   waitForTerminal(
     handle: string,
     options?: { condition?: 'tui-idle'; timeoutMs?: number; signal?: AbortSignal }
@@ -217,6 +221,12 @@ async function buildUnobservedObservation(
   }
 }
 
+// A pane rebound to another PTY would put that PTY's output and verdict on this run.
+function runPaneHandle(runtime: AutomationRunTerminalHost, run: AutomationRun): string | null {
+  const handle = runtime.getTerminalHandleForPaneKey(run.terminalPaneKey ?? '')
+  return handle && runtime.getTerminalPtyIdForHandle(handle) === run.terminalPtyId ? handle : null
+}
+
 export function createRuntimeAutomationRunTerminalObserver(
   runtime: AutomationRunTerminalHost,
   /** Agent evidence discounts prior-run idleness; without it, require a busy-to-idle transition. */
@@ -237,7 +247,7 @@ export function createRuntimeAutomationRunTerminalObserver(
         return await (judged
           ? observeAcrossStaleHandles(
               handle,
-              () => runtime.getTerminalHandleForPaneKey(judged.run.terminalPaneKey ?? ''),
+              () => runPaneHandle(runtime, judged.run),
               signal,
               observe
             )
