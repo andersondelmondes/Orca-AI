@@ -19636,7 +19636,8 @@
         "senderReplaced": "{{name}} 已不在其終端機中執行；目前有另一個代理程式在該終端機中執行。如有需要，請從側邊欄開啟該終端機。",
         "senderAmbiguous": "Orca 無法判斷 {{name}} 在哪個終端機中執行。請從側邊欄開啟終端機。",
         "senderNotRunning": "{{name}} 已停止執行。請從側邊欄啟動新的代理程式以繼續其工作。",
-        "unnamedSenderSubject": "一個代理程式"
+        "unnamedSenderSubject": "一個代理程式",
+        "unnamedRecipient": "一個代理程式"
       },
       "goal": {
         "placeholder": "描述您的目標，定義可衡量的結果以獲得最佳結果",

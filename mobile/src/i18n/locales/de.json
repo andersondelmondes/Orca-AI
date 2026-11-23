@@ -739,6 +739,9 @@
         "failed": "Fehler: {{count}}"
       },
       "pasteHint": "Wenn der Browser auf einer Seite landet, die nicht lädt, ihre Adresse kopieren und hier einfügen."
+    },
+    "agentMessage": {
+      "unnamedRecipient": "einem Agenten"
     }
   },
   "common": {

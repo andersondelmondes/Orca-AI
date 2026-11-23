@@ -20069,7 +20069,8 @@
         "senderReplaced": "{{name}} artık kendi terminalinde çalışmıyor; orada şimdi başka bir ajan çalışıyor. Gerekirse terminali kenar çubuğundan açın.",
         "senderAmbiguous": "Orca, {{name}} adlı ajanın hangi terminalde çalıştığını belirleyemiyor. Terminali kenar çubuğundan açın.",
         "senderNotRunning": "{{name}} artık çalışmıyor. İşine devam etmek için kenar çubuğundan yeni bir ajan başlatın.",
-        "unnamedSenderSubject": "Bir ajan"
+        "unnamedSenderSubject": "Bir ajan",
+        "unnamedRecipient": "bir ajan"
       },
       "goal": {
         "placeholder": "Hedefinizi açıklayın; en iyi sonuçlar için ölçülebilir sonuçlar tanımlayın",

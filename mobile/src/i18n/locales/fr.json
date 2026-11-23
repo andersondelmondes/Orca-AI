@@ -776,6 +776,9 @@
         "needsAuth_many": "{{count}} connexions requises"
       },
       "pasteHint": "Lorsque le navigateur arrive sur une page qui ne se charge pas, copiez son adresse et collez-la ici."
+    },
+    "agentMessage": {
+      "unnamedRecipient": "un agent"
     }
   },
   "common": {

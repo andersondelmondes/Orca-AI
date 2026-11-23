@@ -19739,7 +19739,8 @@
         "senderReplaced": "{{name}} ya no se está ejecutando en su terminal; ahora se ejecuta otro agente allí. Si necesitas esa terminal, ábrela desde la barra lateral.",
         "senderAmbiguous": "Orca no puede determinar en qué terminal se ejecuta {{name}}. Ábrela desde la barra lateral.",
         "senderNotRunning": "{{name}} ya no se está ejecutando. Inicia un nuevo agente desde la barra lateral para continuar su trabajo.",
-        "unnamedSenderSubject": "Un agente"
+        "unnamedSenderSubject": "Un agente",
+        "unnamedRecipient": "un agente"
       },
       "goal": {
         "placeholder": "Describe tu objetivo y define resultados medibles para obtener mejores resultados",

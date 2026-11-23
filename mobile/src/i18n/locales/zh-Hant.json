@@ -733,6 +733,9 @@
         "failed": "失敗：{{count}}"
       },
       "pasteHint": "當瀏覽器前往無法載入的頁面時，請複製網址並貼到這裡。"
+    },
+    "agentMessage": {
+      "unnamedRecipient": "一個代理程式"
     }
   },
   "common": {

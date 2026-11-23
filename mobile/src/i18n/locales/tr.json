@@ -739,6 +739,9 @@
         "failed": "Başarısız: {{count}}"
       },
       "pasteHint": "Tarayıcı yüklenmeyen bir sayfaya yönlendiğinde adresi kopyalayıp buraya yapıştırın."
+    },
+    "agentMessage": {
+      "unnamedRecipient": "bir ajan"
     }
   },
   "common": {

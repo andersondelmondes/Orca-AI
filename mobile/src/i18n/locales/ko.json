@@ -733,6 +733,9 @@
         "failed": "실패: {{count}}"
       },
       "pasteHint": "브라우저가 불러올 수 없는 페이지로 이동하면 주소를 복사해 여기에 붙여넣으세요."
+    },
+    "agentMessage": {
+      "unnamedRecipient": "에이전트"
     }
   },
   "common": {

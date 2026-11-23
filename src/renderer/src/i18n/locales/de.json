@@ -19942,7 +19942,8 @@
         "senderReplaced": "{{name}} läuft nicht mehr in seinem Terminal; dort läuft jetzt ein anderer Agent. Öffne das Terminal bei Bedarf über die Seitenleiste.",
         "senderAmbiguous": "Orca kann nicht feststellen, in welchem Terminal {{name}} läuft. Öffne es über die Seitenleiste.",
         "senderNotRunning": "{{name}} läuft nicht mehr. Starte einen neuen Agenten über die Seitenleiste, um die Arbeit fortzusetzen.",
-        "unnamedSenderSubject": "Ein Agent"
+        "unnamedSenderSubject": "Ein Agent",
+        "unnamedRecipient": "einem Agenten"
       },
       "goal": {
         "placeholder": "Ziel beschreiben und für beste Ergebnisse messbare Resultate festlegen",

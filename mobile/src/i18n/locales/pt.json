@@ -795,6 +795,9 @@
         "needsAuth_many": "{{count}} precisam de login"
       },
       "pasteHint": "Quando o navegador chegar a uma página que não carrega, copie o endereço e cole aqui."
+    },
+    "agentMessage": {
+      "unnamedRecipient": "um agente"
     }
   },
   "common": {

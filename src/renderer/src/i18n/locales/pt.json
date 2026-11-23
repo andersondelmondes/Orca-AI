@@ -21469,7 +21469,8 @@
         "senderAmbiguous": "O Orca não consegue identificar em qual terminal {{name}} está em execução. Abra-o pela barra lateral.",
         "senderNotRunning": "{{name}} não está mais em execução. Inicie um novo agente pela barra lateral para continuar o trabalho.",
         "unnamedSenderSubject": "Um agente",
-        "goToAgent": "Vá para o agente"
+        "goToAgent": "Vá para o agente",
+        "unnamedRecipient": "um agente"
       },
       "goal": {
         "placeholder": "Descreva seu objetivo e defina resultados mensuráveis para obter os melhores resultados",

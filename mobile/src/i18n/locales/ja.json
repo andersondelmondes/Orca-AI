@@ -733,6 +733,9 @@
         "failed": "失敗: {{count}}"
       },
       "pasteHint": "ブラウザーが読み込めないページに移動したら、そのアドレスをコピーしてここに貼り付けてください。"
+    },
+    "agentMessage": {
+      "unnamedRecipient": "Agent"
     }
   },
   "common": {
