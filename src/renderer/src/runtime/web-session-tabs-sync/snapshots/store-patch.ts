@@ -18,11 +18,7 @@ import { isClientAuthoritativeAgentStatusPane } from '@/components/terminal-pane
 import { observeAgentHookCompletionForNotification } from '@/components/terminal-pane/agent-completion/hook-lane/agent-hook-completion-notifications'
 import { remapHostAgentStatus } from '../agent-status/agent-status-primitives'
 import { agentStatusEntryEqual } from './state-equality-core'
-import {
-  HOST_WORKING_CLIENT_BOUNDARY_LIMIT,
-  hostWorkingClientBoundaryByPaneKey,
-  type WebSessionTabsSyncState
-} from '../state'
+import { HOST_WORKING_CLIENT_BOUNDARY_LIMIT, hostWorkingClientBoundaryByPaneKey } from '../state'
 import { markHostMirrorPatchFullResync } from './scoped-patch-annotation'
 import { reportVisibleTabPickToHost } from '../navigation/web-session-visible-tab-pick-report'
 import {
@@ -34,10 +30,7 @@ import { recordAgentFinishDropped } from '@/attention/agent-finish-drop-breadcru
 
 /** Commit a reconciliation patch and return a receipt for its host evidence. */
 export function applyWebSessionTabsStorePatch(
-  buildPatch: (
-    state: AppState,
-    changedAgentPaneKeys: Set<string>
-  ) => WebSessionTabsSyncState | Partial<WebSessionTabsSyncState>,
+  buildPatch: (state: AppState, changedAgentPaneKeys: Set<string>) => AppState | Partial<AppState>,
   hostMirrorVerdict: HostSessionMirrorPatchVerdict,
   agentStatusSnapshots?: RuntimeMobileSessionTabsResult | readonly RuntimeMobileSessionTabsResult[],
   allowCompletionNotification = false,
@@ -61,7 +54,7 @@ export function applyWebSessionTabsStorePatch(
   const runStorePatch = (
     state: AppState,
     changedAgentPaneKeys: Set<string>
-  ): WebSessionTabsSyncState | Partial<WebSessionTabsSyncState> => {
+  ): AppState | Partial<AppState> => {
     const patch = buildPatch(state, changedAgentPaneKeys)
     markHostMirrorPatchFullResync(state, patch)
     mirroredAgentStatusChanged = patch !== state && Object.hasOwn(patch, 'agentStatusByPaneKey')

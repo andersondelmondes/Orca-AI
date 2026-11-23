@@ -19,6 +19,7 @@ import { resolveVisibleWorkspaceHostIds } from '../../../../../shared/workspace-
 import { persistedUIValuesEqual } from '../../../../../shared/collections/persisted-ui-equality'
 import '../../../../../shared/orca-profiles/constants'
 import type { UISlice } from './ui-slice-contract'
+import { boundPaneKeyTimestampRecord } from '../../../../../shared/agent-session/view/chat-read-mark-copy'
 
 const MIN_SIDEBAR_WIDTH = 220
 
@@ -112,8 +113,6 @@ export function sanitizeActivityBarPosition(position: unknown): ActivityBarPosit
 
 // Agent rows hydrate at any age (structured chats, and terminal panes still placed), so pane-keyed
 // read state is never age-pruned; the newest entries bound growth instead.
-const PANE_KEY_TIMESTAMP_MAX_ENTRIES = 500
-
 export function sanitizePaneKeyTimestampRecord(value: unknown): Record<string, number> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return {}
@@ -128,13 +127,7 @@ export function sanitizePaneKeyTimestampRecord(value: unknown): Record<string, n
     }
     out[key] = at
   }
-  const entries = Object.entries(out)
-  if (entries.length <= PANE_KEY_TIMESTAMP_MAX_ENTRIES) {
-    return out
-  }
-  return Object.fromEntries(
-    entries.toSorted(([, left], [, right]) => right - left).slice(0, PANE_KEY_TIMESTAMP_MAX_ENTRIES)
-  )
+  return boundPaneKeyTimestampRecord(out)
 }
 
 export function sanitizeWorkspaceCleanupDismissals(

@@ -15,11 +15,11 @@ import {
 import { postConnectorAction } from '../../../connector-cloud/connector-actions'
 import { actionGoesToSlack, slackActionArgs } from '../../../connector-cloud/connector-slack-text'
 import { cloudConversation } from '../../../../shared/connectors/connector-cloud-contract'
-import { chatPaneKey } from '../../../external-conversations/external-conversation-chat'
 import { defineMethod } from '../core'
 import { botTurnFor } from '../../../bots/bot-turn-for'
 import { sessionCallerOf } from '../../orchestration/addressing/orchestration-caller-identity'
 import { noteBotRequestPost } from './orchestration/messaging/bot-request-outcome'
+import { chatPaneKey } from '../../../../shared/agent-session/view/structured-agent-session-projection'
 import { orcaSignInServer } from '../../../bots/orca-sign-in-server'
 import {
   hostNotSignedIn,

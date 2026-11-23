@@ -20,10 +20,6 @@ import {
 import { connectorAskerPrompt, connectorPlainMessages } from '../../shared/connector-asker-prompt'
 import { CHAT_GONE_REFUSAL } from '../../shared/connectors/connector-cloud-contract'
 import { createStructuredAgentSessionOperationId } from '../../shared/agent-session/lifecycle/operations/structured-agent-session-mutation'
-import {
-  structuredAgentSessionPaneKey,
-  structuredAgentSessionTabId
-} from '../../shared/agent-session/view/structured-agent-session-projection'
 import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/host/structured-agent-session-host'
 import {
   getStructuredAgentSessionHost,
@@ -37,6 +33,8 @@ import { refusalOf } from './external-conversation-chain'
 import { storedConnectorAsker } from '../../shared/connector-message-asker'
 import { connectorFailure } from './external-conversation-failure'
 import { refused, type ConnectorMessage, type Delivery } from './external-conversation-types'
+/** The pane key a chat's status row is published under: its conversation's. */
+export { chatPaneKey } from '../../shared/agent-session/view/structured-agent-session-projection'
 
 /** What the seam reads of the native-chat host. */
 export type ConversationChat = StructuredAgentTurnHost &
@@ -170,11 +168,6 @@ export function chatTurnFacts(
     delivered: (sessionId: string) => pending(sessionId) || claimed(sessionId),
     reported: (sessionId: string) => runningTurnOpenedByConversationReport(chats, sessionId)
   }
-}
-
-/** The pane key the chat's status row is published under. */
-export function chatPaneKey(sessionId: string): string {
-  return structuredAgentSessionPaneKey(structuredAgentSessionTabId(sessionId), sessionId)
 }
 
 export function callerFor(link: Pick<ExternalConversationLink, 'sessionId'>): {
