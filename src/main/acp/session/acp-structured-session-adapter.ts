@@ -208,8 +208,10 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
     }
   }
 
-  answerPrompt: SessionAdapter['answerPrompt'] = (input) =>
-    this.live(input.sessionId).prompts.answer(input)
+  answerPrompt: SessionAdapter['answerPrompt'] = (input) => {
+    const session = this.live(input.sessionId)
+    return session.prompts.answer(input, { buildMode: session.options.modeChoice.build() })
+  }
 
   async setOption(input: SetOptionInput) {
     const session = this.live(input.sessionId)
