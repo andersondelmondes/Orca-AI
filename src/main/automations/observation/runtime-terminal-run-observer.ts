@@ -3,10 +3,7 @@ import type {
   AutomationRunCompletionObservation,
   AutomationRunTerminalObserver
 } from './run-completion-watcher'
-import type {
-  AutomationRun,
-  AutomationRunOutputSnapshot
-} from '../../../shared/automations/history/automation-run'
+import type { AutomationRunOutputSnapshot } from '../../../shared/automations/history/automation-run'
 import {
   AUTOMATION_RUN_FAILURE_COPY,
   automationRunFailure,
@@ -22,7 +19,6 @@ import {
   type IdleRunVerdict
 } from './automation-run-agent-evidence'
 import { readProvenTerminalExit } from '../../runtime/terminal/wait/terminal-wait-results'
-import { observeAcrossStaleHandles, sleep } from './stale-terminal-handle-recovery'
 
 const TERMINAL_SNAPSHOT_LIMIT = 2_000
 
@@ -40,7 +36,6 @@ const OBSERVE_DEADLINE_MS = 6 * 60 * 60 * 1000
 
 export type AutomationRunTerminalHost = {
   getTerminalHandleForPaneKey(paneKey: string): string | null
-  getTerminalPtyIdForHandle(handle: string): string | null
   waitForTerminal(
     handle: string,
     options?: { condition?: 'tui-idle'; timeoutMs?: number; signal?: AbortSignal }
@@ -133,6 +128,24 @@ function isGraphUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message === 'runtime_unavailable'
 }
 
+async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('request_aborted'))
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error('request_aborted'))
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** Reuse runtime idle detection across sticky status, pane titles and ready shell prompts. */
 async function isTuiIdleSatisfiedNow(
   runtime: AutomationRunTerminalHost,
@@ -221,12 +234,6 @@ async function buildUnobservedObservation(
   }
 }
 
-// A pane rebound to another PTY would put that PTY's output and verdict on this run.
-function runPaneHandle(runtime: AutomationRunTerminalHost, run: AutomationRun): string | null {
-  const handle = runtime.getTerminalHandleForPaneKey(run.terminalPaneKey ?? '')
-  return handle && runtime.getTerminalPtyIdForHandle(handle) === run.terminalPtyId ? handle : null
-}
-
 export function createRuntimeAutomationRunTerminalObserver(
   runtime: AutomationRunTerminalHost,
   /** Agent evidence discounts prior-run idleness; without it, require a busy-to-idle transition. */
@@ -241,17 +248,7 @@ export function createRuntimeAutomationRunTerminalObserver(
       const judged =
         evidence && run?.terminalPaneKey ? captureRunAgentTurn(evidence, run, runStartedAt) : null
       try {
-        const observe = (current: string): Promise<AutomationRunCompletionObservation> =>
-          observeTerminalRun(runtime, current, signal, judged, startedAt, runStartedAt)
-        // Without agent evidence a restart would repeat the busy-edge check and misread a started agent.
-        return await (judged
-          ? observeAcrossStaleHandles(
-              handle,
-              () => runPaneHandle(runtime, judged.run),
-              signal,
-              observe
-            )
-          : observe(handle))
+        return await observeTerminalRun(runtime, handle, signal, judged, startedAt, runStartedAt)
       } finally {
         judged?.stop()
       }
