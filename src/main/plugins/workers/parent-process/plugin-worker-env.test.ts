@@ -53,6 +53,21 @@ describe('buildPluginWorkerEnv', () => {
     expect(env.GIT_TERMINAL_PROMPT).toBe('0')
   })
 
+  it('passes NODE_EXTRA_CA_CERTS and NODE_USE_SYSTEM_CA for custom TLS trust', () => {
+    const env = buildPluginWorkerEnv(
+      {
+        ...sessionEnv,
+        NODE_EXTRA_CA_CERTS: '/etc/ssl/corp-ca.pem',
+        NODE_USE_SYSTEM_CA: '1',
+        NODE_OPTIONS: '--require /tmp/x.js'
+      },
+      'linux'
+    )
+    expect(env.NODE_EXTRA_CA_CERTS).toBe('/etc/ssl/corp-ca.pem')
+    expect(env.NODE_USE_SYSTEM_CA).toBe('1')
+    expect(env).not.toHaveProperty('NODE_OPTIONS')
+  })
+
   it('reads Windows variables case-insensitively and restores SystemRoot casing', () => {
     expect(
       buildPluginWorkerEnv(
