@@ -18,9 +18,12 @@ import {
 } from './bot-group-schema'
 
 export {
+  BOT_GROUP_PAGE_REPLY_MAX,
   BotGroupReplyMode,
   botGroupOwnerMessageBlocks,
+  botGroupPageReply,
   botGroupTurnReplyText,
+  botGroupTurnShowsNothing,
   withBotGroupTurnAnswer
 } from './bot-group-schema'
 export type {
@@ -121,6 +124,7 @@ export const BotGroupCreate = z.object({
 export const BotGroupRead = Room.extend({
   beforeSequence: z.number().int().positive().optional()
 })
+export const BotGroupTurnRows = GroupId.extend({ operationId: z.string().min(1) })
 export const BotGroupUpdate = Revision.extend({
   name: BotNameSchema.optional(),
   botIds: z.array(z.string().min(1)).min(1).max(32).optional(),
