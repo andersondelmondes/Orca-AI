@@ -27,7 +27,9 @@ const WORKER_ENV_ALLOWLIST = [
   'NUMBER_OF_PROCESSORS',
   // User/corporate TLS trust settings; NODE_OPTIONS stays dropped.
   'NODE_EXTRA_CA_CERTS',
-  'NODE_USE_SYSTEM_CA'
+  'NODE_USE_SYSTEM_CA',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR'
 ] as const
 
 export function buildPluginWorkerEnv(
