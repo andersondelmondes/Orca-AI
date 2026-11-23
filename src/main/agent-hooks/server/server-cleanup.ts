@@ -17,6 +17,7 @@ import { isLocalHookConnectionId } from '../../../shared/agent-hook-listener/tra
 import type { EnrichedAgentHookEventPayload } from './server-types'
 
 import { endedPresenceOf } from './agent-exit-evidence'
+import { endedRestoredTurn } from './server-ended-restored-turn'
 
 export type EndedProcessReconciliationOptions = {
   endedPresence?: AgentProcessPresence
@@ -45,6 +46,15 @@ export abstract class AgentHookServerCleanup extends AgentHookServerPaneSleep {
     return { ...resumeIdentity, providerSessionOnly: true, retainedForLiveness: true }
   }
 
+  private admitRetainedRow(row: EnrichedAgentHookEventPayload): void {
+    admitLegacyAgentStatus(
+      this.state,
+      'main-status-cleanup',
+      row,
+      AGENT_STATUS_2A_CURRENT_PRODUCER_MODE
+    )
+  }
+
   /** Dismiss the row while preserving the live agent's caches; PTY teardown uses clearPaneState. */
   dropStatusEntry(
     paneKey: string,
@@ -58,12 +68,7 @@ export abstract class AgentHookServerCleanup extends AgentHookServerPaneSleep {
     const retained =
       options?.preserveResumeIdentity === false ? null : this.toRetainedProviderSessionRow(deleted)
     if (retained) {
-      admitLegacyAgentStatus(
-        this.state,
-        'main-status-cleanup',
-        retained,
-        AGENT_STATUS_2A_CURRENT_PRODUCER_MODE
-      )
+      this.admitRetainedRow(retained)
     }
     this.commitStatusRowMutation(deleted, retained)
     this.scheduleStatusPersist()
@@ -94,12 +99,7 @@ export abstract class AgentHookServerCleanup extends AgentHookServerPaneSleep {
       }
       const retained = this.toRetainedProviderSessionRow(deleted)
       if (retained) {
-        admitLegacyAgentStatus(
-          this.state,
-          'main-status-cleanup',
-          retained,
-          AGENT_STATUS_2A_CURRENT_PRODUCER_MODE
-        )
+        this.admitRetainedRow(retained)
       }
       this.commitStatusRowMutation(deleted, retained)
       evicted.push(deleted.paneKey)
@@ -156,20 +156,18 @@ export abstract class AgentHookServerCleanup extends AgentHookServerPaneSleep {
         continue
       }
       const resumeRow = options?.preserveResumeIdentity
-        ? this.toRetainedProviderSessionRow(previous)
+        ? (endedRestoredTurn(previous) ?? this.toRetainedProviderSessionRow(previous))
         : null
       const retained =
         resumeRow && endedPresence ? { ...resumeRow, agentPresence: endedPresence } : resumeRow
       clearPane(resolvedPaneKey)
       if (retained) {
-        admitLegacyAgentStatus(
-          this.state,
-          'main-status-cleanup',
-          retained,
-          AGENT_STATUS_2A_CURRENT_PRODUCER_MODE
-        )
-        this.scheduleStatusPersist()
+        this.admitRetainedRow(retained)
+        this.scheduleStatusPersist(!retained.providerSessionOnly)
         this.notifyStatusChangeListeners()
+        if (!retained.providerSessionOnly) {
+          this.emitEnrichedStatus(retained)
+        }
       }
       this.commitStatusRowMutation(previous, retained)
       cleared += 1
