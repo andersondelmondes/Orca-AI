@@ -1,7 +1,10 @@
 import { defineFixture } from '../../component-fixtures/component-fixture'
 import { stubBots } from '../../component-fixtures/fixture-bots'
 import { makeFolderWorkspace } from '@/store/folder-workspaces/folder-workspace.test-fixture'
+import { makeUnifiedTab } from '@/store/slices/tabs/tab-group.test-fixture'
 import { makeWorktree } from '@/store/slices/worktrees/worktree.test-fixture'
+import { structuredAgentSessionTabId } from '../../../../shared/agent-session/view/structured-agent-session-projection'
+import type { AppState } from '@/store/types'
 import type { Bot } from '../../../../shared/bot-types'
 import { mascotAvatar } from '../../../../shared/bot-avatar'
 import {
@@ -198,6 +201,18 @@ function treeOf(chats: BotChatTreeChat[]): BotChatTreeRead {
   return { chats, workspaceChats }
 }
 
+/** A worktree line of the fixture repo, named after the trailing segment of `repo-1::/<name>`. */
+function repoLine(id: string) {
+  const name = id.slice('repo-1::/'.length)
+  return makeWorktree({
+    id,
+    instanceId: `${name}-instance`,
+    repoId: 'repo-1',
+    path: `/${name}`,
+    displayName: name
+  })
+}
+
 function fixtureFor(
   chats: BotChatTreeChat[],
   folds: Record<string, 'open' | 'folded'> = {},
@@ -206,21 +221,11 @@ function fixtureFor(
   selected?: { worker: string; children: number }
 ) {
   const tree = treeOf(chats)
-  const line = (id: string) => {
-    const name = id.slice('repo-1::/'.length)
-    return makeWorktree({
-      id,
-      instanceId: `${name}-instance`,
-      repoId: 'repo-1',
-      path: `/${name}`,
-      displayName: name
-    })
-  }
-  const lines = Object.keys(tree.workspaceChats).map(line)
+  const lines = Object.keys(tree.workspaceChats).map(repoLine)
   const selectedId = selected ? `repo-1::/${selected.worker}` : null
   const children = selected
     ? Array.from({ length: selected.children }, (_, index) =>
-        line(`repo-1::/${selected.worker}-child-${index}`)
+        repoLine(`repo-1::/${selected.worker}-child-${index}`)
       )
     : []
   const worktrees = [...lines, ...children]
@@ -316,8 +321,40 @@ async function clickText(frame: HTMLElement, text: string): Promise<void> {
   throw new Error(`No "${text}" button`)
 }
 
+/** The bot's own Home workspace open, its Home Chat tab in front: what a press on that chat row leaves. */
+function homeChatOpen(): Partial<AppState> {
+  const homeKey = folderWorkspaceKey(BOT.folderWorkspaceId)
+  const tabId = structuredAgentSessionTabId('home')
+  const tab = makeUnifiedTab({
+    id: tabId,
+    entityId: 'home',
+    worktreeId: homeKey,
+    groupId: 'g',
+    contentType: 'agent-session',
+    agentSessionAgent: 'claude'
+  })
+  return {
+    activeWorktreeId: homeKey,
+    activeWorkspaceKey: homeKey,
+    unifiedTabsByWorktree: { [homeKey]: [tab] },
+    groupsByWorktree: {
+      [homeKey]: [{ id: 'g', worktreeId: homeKey, activeTabId: tabId, tabOrder: [tabId] }]
+    },
+    activeGroupIdByWorktree: { [homeKey]: 'g' }
+  }
+}
+
 /** v3: only the open tabs, each chat's live lines then its last 2 finished; the new threads stay off the list. */
 export const normal = fixtureFor(normalDay(HOME_WORKERS))
+
+/** The bot's Home workspace is open and its Home Chat tab is in front, as after clicking that row. */
+export const chatOpen = defineFixture({
+  ...normal,
+  store: {
+    ...normal.store,
+    ...homeChatOpen()
+  }
+})
 
 /** Two live chats folded by hand: live counts, then the chevron at the right edge. */
 export const folded = fixtureFor(normalDay(HOME_WORKERS), { home: 'folded', 'side-2': 'folded' })
@@ -360,16 +397,8 @@ function runFixture(runOpen: boolean) {
     chat('home', 'Home Chat', 'home', {}, { tab: true, lastActiveAt: NOW - 51 * 60_000 }),
     chat('run', 'Daily Linear triage', 'automation', { running: [worker(RUN, 'running')] })
   ])
-  const line = (name: string) =>
-    makeWorktree({
-      id: `repo-1::/${name}`,
-      instanceId: `${name}-instance`,
-      repoId: 'repo-1',
-      path: `/${name}`,
-      displayName: name
-    })
-  const run = line(RUN)
-  const lanes = RUN_LANES.map(([name]) => line(name))
+  const run = repoLine(`repo-1::/${RUN}`)
+  const lanes = RUN_LANES.map(([name]) => repoLine(`repo-1::/${name}`))
   const lineage = Object.fromEntries(
     RUN_LANES.map(([name, parent]) => [
       `repo-1::/${name}`,
