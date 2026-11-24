@@ -18,6 +18,7 @@ import {
   type BotToolOAuthEntry,
   type BotToolOAuthRecord
 } from '../bot-tool-credentials'
+import { canSeal } from '../bot-tool-credential-envelope'
 import { discoverBotToolAuth, type BotToolAuthServer } from './bot-tool-oauth-discovery'
 import { isSecureOAuthEndpoint } from './secure-oauth-fetch'
 import {
@@ -111,6 +112,10 @@ export async function beginBotToolSignIn(
   const entry = readBotToolOAuth(key.folder, key.credentialId)
   if (!entry) {
     throw new BotToolSignInError('no-tool')
+  }
+  // Saving the tokens needs a keyring; failing after the exchange would orphan the issued grant.
+  if (!canSeal()) {
+    throw new BotToolSignInError('no-keyring')
   }
   const need = await discoverBotToolAuth(entry.url, discoveryOptions(signal))
   if (need.kind === 'unavailable') {
