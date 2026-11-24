@@ -19812,7 +19812,9 @@
         "permissionAppliesNextMessage": "{{saved}} は次のメッセージから適用されます。現在は {{active}} を使用しています",
         "bots": "ボット",
         "backToBots": "ボットに戻る",
-        "loadingBotChats": "{{name}} のチャットを読み込み中…"
+        "loadingBotChats": "{{name}} のチャットを読み込み中…",
+        "permissionReadOnly": "読み取り専用",
+        "permissionReadOnlyDescription": "権限昇格を許可せず Agent の読み取り専用サンドボックスを使用"
       },
       "tool": {
         "result": "結果",
@@ -20837,6 +20839,11 @@
           "plugin": "プラグイン",
           "session": "セッション"
         }
+      },
+      "currentSideChat": {
+        "open": "新しいサイドチャット",
+        "pane": "サイドチャットを専用ペインにまとめる",
+        "mark": "btw"
       }
     },
     "tab": {

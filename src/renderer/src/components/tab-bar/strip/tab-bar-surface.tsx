@@ -39,6 +39,7 @@ import { buildTabDropIndicators } from '../model/tab-bar-item-model'
 import type { TabStripCondense } from './use-tab-strip-condense'
 import { TabStripDensityContext } from './tab-strip-density-context'
 import { TabStripOverflowChip, type TabStripEntry } from './TabStripOverflowChip'
+import { SideChatPaneMark } from './SideChatPaneMark'
 
 const EMPTY_CLIENT_HOSTED_ROWS: readonly ClientHostedBrowserRow[] = []
 
@@ -154,10 +155,16 @@ export function renderTabBarSurface(
       segments
     })
 
+  const sideChatOnly = itemProjection.sideChatOnly && allClientHostedBrowserRows.length === 0
   const hasTabs = orderedItems.length + clientHostedBrowserRows.length > 0
   return (
     <TabStripDensityContext value={density}>
-      <div ref={surfaceRef} className="flex items-stretch h-full overflow-hidden flex-1 min-w-0">
+      <div
+        ref={surfaceRef}
+        data-side-chat-only={sideChatOnly || undefined}
+        className="group/side-chat-pane flex items-stretch h-full overflow-hidden flex-1 min-w-0"
+      >
+        {sideChatOnly ? <SideChatPaneMark t={t} /> : null}
         {condense.showScrollArrows ? (
           <Tooltip>
             <TooltipTrigger asChild>
