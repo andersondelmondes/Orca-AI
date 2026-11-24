@@ -85,8 +85,12 @@ export class UsageLimitColdCuts {
     if (open.has(id)) {
       this.attributed.delete(id)
     } else if (this.attributed.get(id) !== key || !holds.attributionCurrent(id, host)) {
-      this.attributed.set(id, key)
-      await holds.attribute(id, host, cut, now())
+      // Only a settled attribution waits for the next move; a failed read is retried next pass.
+      if (await holds.attribute(id, host, cut, now())) {
+        this.attributed.set(id, key)
+      } else {
+        this.attributed.delete(id)
+      }
     } else {
       holds.askForMoveReading(id)
     }
