@@ -44,6 +44,7 @@ import type { AdmittedMessage } from '../native-chat/agent-session-wire/host/str
 import { isStructuredAttentionMuted } from './agent-session/lifecycle/structured-agent-session-mobile-attention'
 import { backfillInstalledBotBackgroundChats } from '../bots/bot-background-chat-backfill'
 import { runtimeBotItems } from '../bots/runtime-bot-items'
+import type { BotRunChatCloser } from '../bots/bot-run-chat-close'
 import { botItemOfReport } from '../bots/bot-item-report-fact'
 import { listeningClients } from './orchestration/federation/client-asks/client-ask-listeners'
 
@@ -104,6 +105,7 @@ export abstract class OrcaRuntimeWithBots extends OrcaRuntimeWithLinearCommands 
         .forget(botId)
         .catch(() => undefined)
       this.lookAround.forget(botId)
+      this.botRunChatCloser?.forget(botId)
       void this.botWork.forgetBot(botId)
       this.bots.memory.removed(botId)
     }
@@ -171,6 +173,9 @@ export abstract class OrcaRuntimeWithBots extends OrcaRuntimeWithLinearCommands 
     this.botJournal.catchUp()
   }
 
+  /** Closes finished run chats once idle, once the scheduler binds bot automations. */
+  botRunChatCloser: BotRunChatCloser | null = null
+
   /** Each bot's looks and Up next, on this host. */
   readonly lookAround = new BotLookAroundStore(
     lookAroundFileIo(() => lookAroundStoreFile(getProfileUserDataPath())),
@@ -220,7 +225,12 @@ export abstract class OrcaRuntimeWithBots extends OrcaRuntimeWithLinearCommands 
     bots: () => this.bots.list(),
     store: () => this.store,
     // Closed items also go to each bot's memory/journal/.
-    notify: (scope) => this.botJournal(scope),
+    notify: (scope) => {
+      this.botJournal(scope)
+      if (scope.kinds?.includes('items')) {
+        this.botRunChatCloser?.itemsChanged(scope.botIds ?? [])
+      }
+    },
     sendMail: (mail) => this.botSessions.sendItemMail(mail)
   })
 
