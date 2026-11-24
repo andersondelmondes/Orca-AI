@@ -52,6 +52,7 @@ export const NATIVE_CHAT_AGENTS = [
   'gemini',
   'droid',
   'qwen-code',
+  'qwenwork',
   'cline',
   'devin',
   'codebuddy'
@@ -85,6 +86,7 @@ const AGENT_CHAT_PERMISSION_MODES_BY_AGENT: Record<
   'mimo-code': ACP_CHAT_PERMISSION_MODES,
   gemini: ACP_CHAT_PERMISSION_MODES,
   // Qwen's own modes: Auto Edit approves edits, and Auto has a model approve what is safe.
+  qwenwork: { modes: ['ask'] },
   'qwen-code': CLAUDE_CHAT_PERMISSION_MODES,
   cline: ACP_CHAT_PERMISSION_MODES,
   // Devin's own modes: Code approves edits, and Smart has a model approve what is safe.
