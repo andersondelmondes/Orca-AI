@@ -8,13 +8,11 @@ import {
   installPluginFromLocalPath
 } from '../../plugins/installation/plugin-install'
 import { uninstallInstalledPlugin } from '../../plugins/installation/plugin-uninstall'
+import { unloadPluginDevFolder } from '../../plugins/development/plugin-dev-folders'
+import { applyPluginConsent, applyPluginEnablement } from '../../plugins/activation/plugin-enablement'
+import { readApprovedPluginNewFileTemplate } from '../../plugins/contributions/plugin-new-file-template'
 import { takeRequiredPluginFailures } from '../../plugins/catalog/required-plugin-failures'
 import { assertTeamAllowsUncatalogedPlugin } from '../../plugins/installation/plugin-team-install-policy'
-import {
-  applyPluginConsent,
-  applyPluginEnablement
-} from '../../plugins/activation/plugin-enablement'
-import { readApprovedPluginNewFileTemplate } from '../../plugins/contributions/plugin-new-file-template'
 import { handlePluginPanelStateRequest } from '../../plugins/panels/panel-lifetime/plugin-panel-state'
 import type { PluginService } from '../../plugins/plugin-service'
 import { registerPluginFrameEntryHandlers, rendererPanelOwner } from './plugin-frame-entry-ipc'
@@ -256,6 +254,27 @@ export function registerPluginHandlers(
     if (!removed) {
       throw new Error(`cannot remove protected or non-installed plugin ${parsed.pluginKey}`)
     }
+    return listPluginsForClients(pluginService)
+  })
+
+  ipcMain.handle('plugins:unloadDevFolder', async (_event, args: unknown) => {
+    await pluginService.whenReady()
+    const { pluginKey } = removeArgsSchema.parse(args)
+    if (
+      !pluginService
+        .getDiscovered()
+        .some((plugin) => plugin.pluginKey === pluginKey && plugin.isDev)
+    ) {
+      throw new Error(`${pluginKey} is not a loaded development plugin`)
+    }
+    await unloadPluginDevFolder({
+      service: pluginService,
+      writes: {
+        setDevPluginPaths: (devPluginPaths) =>
+          store.updateSettings({ devPluginPaths }, { notifyListeners: true })
+      },
+      target: { pluginKey }
+    })
     return listPluginsForClients(pluginService)
   })
 

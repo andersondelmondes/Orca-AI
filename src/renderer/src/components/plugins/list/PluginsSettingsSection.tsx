@@ -52,7 +52,7 @@ export function PluginsSettingsSection({
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [developmentOpen, setDevelopmentOpen] = useState(false)
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false)
-  const [removePluginId, setRemovePluginId] = useState<string | null>(null)
+  const [removePlugin, setRemovePlugin] = useState<PluginHostListEntry | null>(null)
   const [busyPluginKeys, setBusyPluginKeys] = useState<Set<string>>(() => new Set())
   const mountedRef = useRef(false)
   const listRequestRef = useRef(0)
@@ -81,7 +81,12 @@ export function PluginsSettingsSection({
     setError(null)
     // Why: accepted discovery results own installed-plugin identity and invalidate stale UI state.
     review.prune(installedPluginKeys)
-    setRemovePluginId((current) => (current && installedPluginKeys.has(current) ? current : null))
+    setRemovePlugin((current) => {
+      const next = nextPlugins.find((plugin) => plugin.pluginKey === current?.pluginKey)
+      return current && next?.isDev === current.isDev && next.bundled === current.bundled
+        ? next
+        : null
+    })
     setBusyPluginKeys(
       (current) => new Set([...current].filter((pluginKey) => installedPluginKeys.has(pluginKey)))
     )
@@ -160,7 +165,7 @@ export function PluginsSettingsSection({
       setError(null)
       setInstallKind(null)
       clearReviews()
-      setRemovePluginId(null)
+      setRemovePlugin(null)
       setBusyPluginKeys(new Set())
       resetSettingsWrites()
     }
@@ -201,8 +206,6 @@ export function PluginsSettingsSection({
   if (!mounted) {
     return <SettingsSection id="plugins" {...sectionPresentation} />
   }
-
-  const removePlugin = plugins.find((plugin) => plugin.pluginKey === removePluginId) ?? null
 
   const install = async (source: PluginHostInstallSource): Promise<void> => {
     if (!(await confirmTrust(sourceInstallTrustPrompt(source)))) {
@@ -318,12 +321,16 @@ export function PluginsSettingsSection({
     }
   }
 
-  const remove = async (pluginKey: string): Promise<void> => {
+  const remove = async (plugin: PluginHostListEntry): Promise<void> => {
     if (
-      (await mutateList(pluginKey, () => window.api.plugins.remove({ pluginKey }))) &&
+      (await mutateList(plugin.pluginKey, () =>
+        plugin.isDev
+          ? window.api.plugins.unloadDevFolder({ pluginKey: plugin.pluginKey })
+          : window.api.plugins.remove({ pluginKey: plugin.pluginKey })
+      )) &&
       mountedRef.current
     ) {
-      setRemovePluginId(null)
+      setRemovePlugin(null)
     }
   }
 
@@ -378,7 +385,8 @@ export function PluginsSettingsSection({
           },
           onRestart: (pluginKey) => void restart(pluginKey),
           onRollbackRequest: marketplaceLifecycle.requestRollback,
-          onRemoveRequest: setRemovePluginId
+          onRemoveRequest: (key) =>
+            setRemovePlugin(plugins.find((plugin) => plugin.pluginKey === key) ?? null)
         }}
         onRefresh={refresh}
         onMarketplaceInstalled={marketplaceLifecycle.reloadAfterMutation}
@@ -412,8 +420,12 @@ export function PluginsSettingsSection({
       <PluginRemoveDialog
         plugin={removePlugin}
         busy={Boolean(removePlugin && busyPluginKeys.has(removePlugin.pluginKey))}
-        onCancel={() => setRemovePluginId(null)}
-        onConfirm={(pluginKey) => void remove(pluginKey)}
+        onCancel={() => setRemovePlugin(null)}
+        onConfirm={() => {
+          if (removePlugin) {
+            void remove(removePlugin)
+          }
+        }}
       />
       <PluginRollbackDialog
         plugin={marketplaceLifecycle.rollbackPlugin}
