@@ -1007,6 +1007,7 @@ import {
   TerminalUnsubscribe,
   TerminalUpdateViewport
 } from './terminal/terminal-viewport-schemas-params'
+import { TextGenerate } from './text-params'
 import { UpdaterCheckParams } from './updater/updater-params'
 import {
   WebhookCallShow,
@@ -2210,6 +2211,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'terminalDaemon.restartSevered': TerminalDaemonRestartSeveredParams,
   'terminalDaemon.setLimit': TerminalLimitUpdateParams,
   'terminalDaemon.severedStatus': null,
+  'text.generate': TextGenerate,
   'ui.get': null,
   'ui.getJiraQuickFilters': null,
   'ui.getJiraSavedFilters': null,
