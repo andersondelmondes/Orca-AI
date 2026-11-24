@@ -12,6 +12,8 @@ export type BrowserAnnotationSendMenuContentProps = {
   onIncludePageDetailsChange: (include: boolean) => void
   onPromptDelivered?: () => void
   onPromptHandedOff?: (delivered: Promise<unknown>) => void
+  /** Checked again right before dispatch, so a prompt built before an edit is never sent. */
+  canSendPrompt?: () => boolean
 }
 
 export function browserAnnotationCopyTooltip(
@@ -36,7 +38,8 @@ export function BrowserAnnotationSendMenuContent({
   includePageDetails,
   onIncludePageDetailsChange,
   onPromptDelivered,
-  onPromptHandedOff
+  onPromptHandedOff,
+  canSendPrompt
 }: BrowserAnnotationSendMenuContentProps): React.JSX.Element {
   const t = useTranslate()
   return (
@@ -48,6 +51,7 @@ export function BrowserAnnotationSendMenuContent({
         // Keep annotation delivery and telemetry stable when shared menu defaults change.
         promptDelivery="submit-after-ready"
         launchSource="notes_send"
+        canSendPrompt={canSendPrompt}
         onPromptDelivered={onPromptDelivered}
         onPromptHandedOff={onPromptHandedOff}
       />

@@ -5,7 +5,10 @@ import { TaskSourceContextSchema } from '../../../shared/work-items/task-source-
 import { WorkspaceLinkedItemSchema } from '../../../shared/workspace-attachments/workspace-linked-item-schema'
 import { WorkspaceAttachmentsSchema } from '../../../shared/workspace-attachments/workspace-attachment-schema'
 import { isWorkspaceLinkedItemSourceContextMatch } from '../../../shared/workspace-attachments/workspace-linked-item-source-context'
-import { DiffCommentSchema } from '../../../shared/file-review/diff-comment-schema'
+import {
+  DiffCommentDeliverySnapshotSchema,
+  DiffCommentSchema
+} from '../../../shared/file-review/diff-comment-schema'
 import { normalizeExecutionHostId } from '../../../shared/execution-host/execution-host'
 import {
   FolderWorkspaceHookCreateShape,
@@ -190,7 +193,8 @@ export const FolderWorkspaceUpdateArgs = z.object({
       firstAgentMessageRenameError: z.string().nullable().optional(),
       lastActivityAt: z.number().finite().optional(),
       diffComments: z.array(DiffCommentSchema).optional(),
-      diffCommentsBase: z.array(DiffCommentSchema).optional()
+      diffCommentsBase: z.array(DiffCommentSchema).optional(),
+      deliveredDiffCommentSnapshots: z.array(DiffCommentDeliverySnapshotSchema).optional()
     })
     .superRefine(assertFolderWorkspaceLinkedSourceContextMatch)
 })
