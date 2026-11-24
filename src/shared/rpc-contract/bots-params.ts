@@ -16,10 +16,7 @@ import {
   BotGitHubSchema,
   BotLinearSchema,
   BotSlackAppSchema,
-  botMemberSource,
-  botSlackApps,
   withoutBotMember,
-  withSlackMembersTagged,
   type Bot,
   type BotMember
 } from '../bot-types'
@@ -31,6 +28,7 @@ import { HANDED_WORKSPACES_MAX, HandedWorkspaceSchema } from '../bots/bot-made-f
 import { BotProposalSchema, BotProposalSeedSchema } from '../bots/bot-proposal'
 import { BotTakeOverSchema } from '../bots/bot-take-over'
 import { membersInDiscordGuilds } from '../bots/bot-discord-members'
+import { membersInSlackWorkspaces } from '../bots/bot-slack-members'
 import { BotLookAroundSchema, botLookAround, patchLookAround } from '../bots/bot-look-around'
 import { BotLaunchSchema } from '../bots/bot-launch'
 import {
@@ -375,20 +373,7 @@ export function applyBotUpdates(bot: Bot, updates: BotHostUpdates): Bot {
   }
   if (next.slackApps) {
     // A workspace's people go with it, so a removed workspace never hands them to another.
-    // Untagged people are the first workspace's as it was before this update.
-    const first = botSlackApps(bot)[0] ?? botSlackApps(next)[0]
-    const teams = new Set(next.slackApps.map((app) => app.teamId))
-    const tagged = withSlackMembersTagged({
-      members: next.members,
-      slack: null,
-      slackApps: first ? [first] : []
-    }).members
-    next.members = tagged.filter(
-      (member) =>
-        botMemberSource(member) !== 'slack' ||
-        member.workspaceId === undefined ||
-        teams.has(member.workspaceId)
-    )
+    next.members = membersInSlackWorkspaces(bot, next)
   }
   if (rest.discord !== undefined) {
     next.members = membersInDiscordGuilds(next)
