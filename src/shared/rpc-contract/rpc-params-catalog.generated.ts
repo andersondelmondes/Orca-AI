@@ -873,7 +873,6 @@ import {
   GiteaPullRequestChecks,
   GiteaPullRequestFileContents,
   GiteaRepoSelector,
-  GiteaSelectServerParams,
   GiteaServerIdParams,
   GiteaUpdateIssue,
   GiteaWorkItemsList
@@ -1694,7 +1693,6 @@ export const RPC_PARAMS_BY_METHOD = {
   'gitea.prFiles': GiteaIssueByNumber,
   'gitea.prMerge': GiteaMergePullRequest,
   'gitea.prReviewComments': GiteaIssueByNumber,
-  'gitea.selectServer': GiteaSelectServerParams,
   'gitea.status': null,
   'gitea.testConnection': GiteaServerIdParams,
   'gitea.updateIssue': GiteaUpdateIssue,
