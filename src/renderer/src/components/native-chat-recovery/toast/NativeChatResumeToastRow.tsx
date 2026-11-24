@@ -1,5 +1,7 @@
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/class-names'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslate, type Translate } from '@/i18n/use-translate'
 import {
   resumeFailureGuidance,
@@ -7,6 +9,7 @@ import {
 } from '../failures/native-chat-resume-failure-guidance'
 import { resumeActivityLabel } from '../tree/native-chat-resume-activity-label'
 import type { ResumeToastRow } from './native-chat-resume-toast-view'
+import { botChatLabelParts, botChatLabelText, botNameDigitSuffix } from './resume-toast-row-label'
 
 function rowActions(row: ResumeToastRow, remote: boolean, t: Translate): ResumeFailureAction[] {
   if (row.state !== 'needs-you') {
@@ -83,9 +86,29 @@ function StateMark({ row }: { row: ResumeToastRow }): React.JSX.Element {
   )
 }
 
+/** Never shrinks, so a sub-pixel squeeze can't clip a name that fits; past its cap the chat keeps a
+ *  word. Isolated so its direction never mixes with the row's. */
+function BotName({ name }: { name: string }): React.JSX.Element {
+  const suffix = botNameDigitSuffix(name)
+  return suffix ? (
+    <bdi className="flex min-w-0 max-w-[calc(100%-4rem)] shrink-0">
+      <span className="min-w-0 truncate">{suffix.head}</span>
+      {/* The instance number stays, so "… 01" and "… 02" differ in the row itself. */}
+      <span className="max-w-[5ch] shrink-0 overflow-hidden whitespace-pre [contain:paint]">
+        {suffix.digits}
+      </span>
+    </bdi>
+  ) : (
+    <bdi className="max-w-[calc(100%-4rem)] shrink-0 truncate">{name}</bdi>
+  )
+}
+
+const SHORT_LITERAL_MAX = 4
+
 export function NativeChatResumeToastRow({
   row,
-  name,
+  name: chatName,
+  owner,
   age,
   busy,
   remote,
@@ -93,6 +116,8 @@ export function NativeChatResumeToastRow({
 }: {
   row: ResumeToastRow
   name: string
+  /** The bot whose chat this is, named in the locale's order; the chat title truncates first. */
+  owner?: string
   age: string
   busy: boolean
   remote: boolean
@@ -100,6 +125,8 @@ export function NativeChatResumeToastRow({
 }): React.JSX.Element {
   const t = useTranslate()
   const actions = rowActions(row, remote, t)
+  const labelParts = owner ? botChatLabelParts(t) : null
+  const name = owner && labelParts ? botChatLabelText(labelParts, owner, chatName) : chatName
   const reason = row.openOnly
     ? t('auto.components.NativeChatResumeFailureGuidance.fallbackShort', 'Couldn’t resume.')
     : row.failure
@@ -112,9 +139,46 @@ export function NativeChatResumeToastRow({
       <StateMark row={row} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className="min-w-0 flex-1 truncate text-xs text-foreground/90" title={name}>
-            {name}
-          </span>
+          {/* Truncated names can look alike; focus or hover shows the whole one, a stop per row. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                tabIndex={0}
+                className="flex min-w-0 flex-1 rounded-sm text-xs text-foreground/90 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+              >
+                {labelParts && owner ? (
+                  labelParts.map((part) =>
+                    part.kind === 'bot' ? (
+                      <BotName key={part.key} name={owner} />
+                    ) : part.kind === 'chat' ? (
+                      // Shrinks well ahead of a translation's text, down to a floor that text can't squeeze past.
+                      <span key={part.key} className="min-w-[5ch] shrink-[100] truncate">
+                        {chatName}
+                      </span>
+                    ) : (
+                      // A short one (" · ", " de ") never gives way; a long one ellipsizes, padded off the names.
+                      <span
+                        key={part.key}
+                        className={cn(
+                          'whitespace-pre text-muted-foreground',
+                          Array.from(part.text).length > SHORT_LITERAL_MAX
+                            ? 'min-w-0 truncate px-[0.25ch]'
+                            : 'shrink-0'
+                        )}
+                      >
+                        {part.text}
+                      </span>
+                    )
+                  )
+                ) : (
+                  <span className="min-w-0 truncate">{chatName}</span>
+                )}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-80 wrap-anywhere">
+              {name}
+            </TooltipContent>
+          </Tooltip>
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{age}</span>
         </div>
         {reason && (

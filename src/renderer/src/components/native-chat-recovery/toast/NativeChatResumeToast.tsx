@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useTranslate, type Translate } from '@/i18n/use-translate'
 import { formatShortTimeAgo } from '@/lib/time-format/short-time-ago'
 import type { ResumeFailureAction } from '../failures/native-chat-resume-failure-guidance'
+import type { ResumeCandidate } from '../tree/native-chat-resume-on-restart-grouping'
 import type { ResumeToastView } from './native-chat-resume-toast-view'
 import { NativeChatResumeToastRow } from './NativeChatResumeToastRow'
 
@@ -13,6 +14,8 @@ export type NativeChatResumeToastProps = {
   machineName?: string
   listedAt: number
   nameFor: (sessionId: string, fallback: string) => string
+  /** The bot whose chat this is, named before the chat's title. */
+  botNameFor?: (candidate: ResumeCandidate) => string | undefined
   defaultExpanded?: boolean
   onResume: (sessionIds: readonly string[]) => void
   onRowAction: (action: ResumeFailureAction, sessionId: string) => void
@@ -136,6 +139,7 @@ export function NativeChatResumeToast({
   machineName,
   listedAt,
   nameFor,
+  botNameFor,
   defaultExpanded = false,
   onResume,
   onRowAction,
@@ -238,6 +242,7 @@ export function NativeChatResumeToast({
                   firstLine(row.candidate.latestPrompt) ||
                     t('auto.components.NativeChatResumeToast.untitled', 'Untitled agent')
                 )}
+                owner={botNameFor?.(row.candidate)}
                 age={formatShortTimeAgo(row.candidate.recordedAt, listedAt)}
                 busy={busy}
                 remote={machineName !== undefined}

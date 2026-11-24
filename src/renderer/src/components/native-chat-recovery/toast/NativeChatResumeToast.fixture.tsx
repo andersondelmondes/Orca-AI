@@ -1,4 +1,5 @@
-import { setRendererUiLanguage } from '@/i18n/i18n'
+import { setRendererUiLanguage, translate } from '@/i18n/i18n'
+import { TranslationScopeContext, type Translate } from '@/i18n/use-translate'
 import { defineFixture } from '../../../component-fixtures/component-fixture'
 import type { ResumeCandidate, ResumeFailure } from '../tree/native-chat-resume-on-restart-grouping'
 import type { ResumeRun } from '../runs/native-chat-resume-run'
@@ -64,6 +65,8 @@ function finishedRun(
 }
 
 const NARROW = 360
+/** The toaster's narrowest width, min(26rem, 100vw - 2rem) = 328 px in a 360 px window, plus the frame's padding. */
+const NARROWEST = 360
 
 export const offerManual = defineFixture({
   width: NARROW,
@@ -160,6 +163,145 @@ export const remoteServer = defineFixture({
   )
 })
 
+/** A bot's chats lead with its name; its own chat is always "Home". */
+const BOT_CHATS: Record<string, { bot: string; chat: string }> = {
+  'chat-0': { bot: 'UX Designer', chat: 'Home' },
+  'chat-1': { bot: 'UX Designer', chat: 'Review the onboarding flow' }
+}
+
+function botChats(chats: Record<string, { bot: string; chat: string }>) {
+  return {
+    nameFor: (sessionId: string, fallback: string) => chats[sessionId]?.chat ?? fallback,
+    botNameFor: (candidate: ResumeCandidate) => chats[candidate.sessionId]?.bot
+  }
+}
+
+export const botChatsResumed = defineFixture({
+  width: NARROW,
+  render: () => (
+    <NativeChatResumeToast
+      view={resumeToastView(finishedRun(twelve.slice(0, 3), 'launch'), [], new Map())}
+      listedAt={NOW}
+      defaultExpanded
+      {...actions}
+      {...botChats(BOT_CHATS)}
+    />
+  )
+})
+
+const LONG_BOT = 'Customer Onboarding Research Assistant'
+const LONG_NAME_CHATS = {
+  'chat-0': {
+    bot: `${LONG_BOT} 01`,
+    chat: 'Summarize every interview from last week and draft the findings deck'
+  },
+  'chat-1': { bot: `${LONG_BOT} 02`, chat: 'Home' },
+  'chat-2': { bot: 'UX Designer', chat: PROMPTS[0] ?? '' }
+}
+
+/** Focuses the second row's label from the keyboard, so its full-name tooltip opens. */
+async function focusSecondRow(frame: HTMLElement): Promise<void> {
+  const labels = frame.querySelectorAll<HTMLElement>('li [tabindex="0"]')
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+  labels[1]?.focus()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+}
+
+function LongNamesToast(): React.JSX.Element {
+  return (
+    <NativeChatResumeToast
+      view={resumeToastView(
+        finishedRun(twelve.slice(0, 4), 'launch'),
+        [],
+        new Map([[notAttached.sessionId, notAttached]])
+      )}
+      listedAt={NOW}
+      defaultExpanded
+      {...actions}
+      {...botChats(LONG_NAME_CHATS)}
+    />
+  )
+}
+
+/** Narrowest toast: the chat title truncates before a long bot name; the age and actions stay. */
+export const botChatsLongNames = defineFixture({
+  width: NARROWEST,
+  render: () => <LongNamesToast />
+})
+
+/** Two names alike up to the ellipsis: a keyboard focus on the row shows the whole one. */
+export const botChatsLongNamesFocused = defineFixture({
+  width: NARROWEST,
+  render: () => <LongNamesToast />,
+  interact: focusSecondRow
+})
+
+const UNBROKEN = 'W'.repeat(62)
+
+/** Two unbroken 63-character names that differ only at the end: the tooltip wraps inside the window. */
+export const botChatsUnbrokenNamesFocused = defineFixture({
+  width: NARROWEST,
+  render: () => (
+    <NativeChatResumeToast
+      view={resumeToastView(finishedRun(twelve.slice(0, 3), 'launch'), [], new Map())}
+      listedAt={NOW}
+      defaultExpanded
+      {...actions}
+      {...botChats({
+        'chat-0': { bot: `${UNBROKEN}A`, chat: 'Home' },
+        'chat-1': { bot: `${UNBROKEN}B`, chat: 'Home' },
+        'chat-2': { bot: `A${'0'.repeat(63)}`, chat: 'Home' }
+      })}
+    />
+  ),
+  interact: focusSecondRow
+})
+
+/** The app's translations, with the bot row's template replaced; a constant so the context is stable. */
+function botChatTemplateScope(template: string): { intlLocale: string; t: Translate } {
+  const t: Translate = (key, fallback, options) =>
+    key === 'auto.components.NativeChatResumeToast.botChat'
+      ? template.replace('{{bot}}', String(options?.bot)).replace('{{chat}}', String(options?.chat))
+      : translate(key, fallback, options)
+  return { intlLocale: 'en', t }
+}
+const LONG_SEPARATOR_SCOPE = botChatTemplateScope(
+  '{{bot}} ———————— a forty-eight character separator ——— {{chat}}'
+)
+const BRACKETED_SCOPE = botChatTemplateScope('「{{chat}}」 · {{bot}}。')
+
+function TemplatedToast({
+  scope,
+  chats
+}: {
+  scope: { intlLocale: string; t: Translate }
+  chats: Record<string, { bot: string; chat: string }>
+}): React.JSX.Element {
+  return (
+    <TranslationScopeContext.Provider value={scope}>
+      <NativeChatResumeToast
+        view={resumeToastView(finishedRun(twelve.slice(0, 3), 'launch'), [], new Map())}
+        listedAt={NOW}
+        defaultExpanded
+        {...actions}
+        {...botChats(chats)}
+      />
+    </TranslationScopeContext.Provider>
+  )
+}
+
+/** A long translated separator gives way before the chat's floor, so both names stay in view. */
+export const botChatsLongSeparator = defineFixture({
+  width: NARROWEST,
+  render: () => <TemplatedToast scope={LONG_SEPARATOR_SCOPE} chats={BOT_CHATS} />
+})
+
+/** A chat-first translation with text around both names keeps its order at the narrowest width. */
+export const botChatsBracketedOrder = defineFixture({
+  width: NARROWEST,
+  render: () => <TemplatedToast scope={BRACKETED_SCOPE} chats={LONG_NAME_CHATS} />
+})
+
 type FixtureLanguage =
   | 'en'
   | 'de'
@@ -172,9 +314,6 @@ type FixtureLanguage =
   | 'tr'
   | 'zh'
   | 'zh-Hant'
-
-/** The toaster's narrowest width, min(26rem, 100vw - 2rem) = 328 px in a 360 px window, plus the frame's padding. */
-const NARROWEST = 360
 
 function twelveOneNeedsYouIn(language: FixtureLanguage, width = NARROWEST) {
   return defineFixture({
