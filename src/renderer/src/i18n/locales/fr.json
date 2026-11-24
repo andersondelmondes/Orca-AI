@@ -21113,7 +21113,10 @@
           "bottom": "bas",
           "scrollback": "historique",
           "snap": "aligner",
-          "position": "position"
+          "position": "position",
+          "bold": "gras",
+          "bright": "vif",
+          "ansi": "ansi"
         }
       },
       "nativeChat": {
@@ -21364,6 +21367,10 @@
         "confirmCheckHomeFolder": "Aucune autre machine partageant ce dossier personnel n'exécute Orca",
         "details": "Détails",
         "clearing": "Suppression…"
+      },
+      "TerminalRendering": {
+        "boldBrightTitle": "Texte en gras en couleurs vives",
+        "boldBrightDescription": "Affiche le texte en gras avec la variante vive des huit couleurs ANSI de base. Désactivez pour conserver leurs couleurs normales."
       }
     },
     "agentChildRow": {

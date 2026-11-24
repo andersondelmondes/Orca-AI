@@ -20972,7 +20972,10 @@
           "bottom": "alt",
           "scrollback": "kaydırma geçmişi",
           "snap": "hizala",
-          "position": "konum"
+          "position": "konum",
+          "bold": "kalın",
+          "bright": "parlak",
+          "ansi": "ansi"
         }
       },
       "nativeChat": {
@@ -21218,6 +21221,10 @@
         "confirmCheckHomeFolder": "Bu ana klasörü paylaşan başka hiçbir makine Orca çalıştırmıyor",
         "details": "Ayrıntılar",
         "clearing": "Kaldırılıyor…"
+      },
+      "TerminalRendering": {
+        "boldBrightTitle": "Kalın metni parlak renklerle çiz",
+        "boldBrightDescription": "Kalın metni sekiz temel ANSI renginin parlak varyantıyla çizer. Normal renklerini korumak için kapatın."
       }
     },
     "agentChildRow": {
