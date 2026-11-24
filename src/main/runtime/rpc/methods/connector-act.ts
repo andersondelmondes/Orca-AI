@@ -17,6 +17,7 @@ import { actionGoesToSlack, slackActionArgs } from '../../../connector-cloud/con
 import { cloudConversation } from '../../../../shared/connectors/connector-cloud-contract'
 import { chatPaneKey } from '../../../external-conversations/external-conversation-chat'
 import { defineMethod } from '../core'
+import { botReadResult } from '../../../../shared/connector-message-parts'
 import { botTurnFor } from '../../../bots/bot-turn-for'
 import { sessionCallerOf } from '../../orchestration/addressing/orchestration-caller-identity'
 import { noteBotRequestPost } from './orchestration/messaging/bot-request-outcome'
@@ -167,6 +168,12 @@ export const CONNECTOR_ACT_METHOD = defineMethod({
         "Orca Cloud can't change issues yet. Say what should change instead, and try again after Orca Cloud updates."
       )
     }
+    if (args.only && !features.has('messageParts' satisfies ConnectorCloudFeature)) {
+      throw new ConnectorActError(
+        'cloud_lacks_message_parts',
+        "Orca Cloud can't read one message alone yet. Read its thread without --only, or open it in Slack."
+      )
+    }
     if (args.search && !features.has('find.search' satisfies ConnectorCloudFeature)) {
       throw new ConnectorActError(
         'cloud_lacks_search',
@@ -262,6 +269,9 @@ export const CONNECTOR_ACT_METHOD = defineMethod({
       await noteBotRequestPost(runtime, sessionId, ref).catch((error: unknown) =>
         console.warn('[bots] could not note a post for a bot request', error)
       )
+    }
+    if (verb === 'read' && answer.value.ok) {
+      return { ...answer.value, result: botReadResult(answer.value.result, args.only === true) }
     }
     // A reply lands in the conversation that woke the run, which the bot names as Orca does.
     return verb === 'reply' && answer.value.ok && target
