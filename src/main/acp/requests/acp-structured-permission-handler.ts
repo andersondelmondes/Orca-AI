@@ -10,7 +10,10 @@ export function acpStructuredPermissionHandler(
   session: () => childState.AcpStructuredChild | null,
   spec: AcpLaunchSpec,
   prompts: AcpStructuredPrompts
-): AcpPermissionHandler {
+): AcpPermissionHandler | undefined {
+  if (spec.autonomousTools) {
+    return undefined
+  }
   return (request, context) => {
     const child = session()
     if (!childState.isAcpReadySession(child) || !child.turns?.acceptsRequests) {
