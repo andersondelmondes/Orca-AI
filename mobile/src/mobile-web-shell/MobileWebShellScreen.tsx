@@ -28,6 +28,8 @@ import { usePageLocationOnFold } from './page-geometry/page-location-on-fold'
 import { usePageOpenTarget } from './routing/page-open-target'
 import { useMobileWebShellSession } from './session/use-mobile-web-shell-session'
 import { useShellPageStorageRefresh } from './page-storage/use-shell-page-storage-refresh'
+import { useDuoChatWidthPublish } from './use-duo-chat-width-publish'
+import { useShellDuoSideRelease } from './use-shell-duo-side-release'
 import { usePageHostSnapshot } from './host-gates/use-page-host-snapshot'
 import { useReportedHostAreaServing } from './host-gates/host-area-serving'
 import { isHostRouteOf } from './routing/page-route-policy'
@@ -144,6 +146,7 @@ export function MobileWebShellScreen({
   })
   const readySessionId = state.kind === 'ready' ? state.sessionId : null
   const keyRail = useShellKeyRail({ sessionId: readySessionId, overlay, routeGrants })
+  useShellDuoSideRelease(overlay, routeGrants)
   const {
     snapshot,
     unreadable,
@@ -302,6 +305,7 @@ export function MobileWebShellScreen({
 
   // paneKey changes keep the session mounted; the host deduplicates routes and preserves in-flight frames.
   useShellPageStorageRefresh(refreshStorage, bridge.publishStorage)
+  useDuoChatWidthPublish(bridge.publishStorage)
   useEffect(() => bridge.publishRoute(pageRoute), [bridge.publishRoute, pageRoute])
 
   usePublishedSafeAreaInsets(bridge.publishSafeAreaInsets, pageInsets)
