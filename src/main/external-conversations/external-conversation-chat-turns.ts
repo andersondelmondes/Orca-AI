@@ -1,12 +1,5 @@
-import type { PendingPrompt } from '../../shared/agent-status/contracts/agent-pending-prompt'
-import type { AgentStatusIpcPayload } from '../../shared/agent-status/contracts/agent-status-ipc-payload'
 import type { AgentStatusState } from '../../shared/agent-status/contracts/agent-status-types'
-import type { AgentJournalRenderItem } from '../../shared/agent-session/journal/agent-session-journal-types'
-import type {
-  ConnectorPrompt,
-  ConnectorTurnOrigin
-} from '../../shared/connectors/connector-cloud-contract'
-import type { ConnectorWorkLink } from '../../shared/connector-work-link-contract'
+import type { ConnectorPrompt } from '../../shared/connectors/connector-cloud-contract'
 import type { ExternalConversationLink } from '../../shared/connectors/external-conversation-link'
 import { chatPaneKey, type ChatNews } from './external-conversation-chat'
 import { promptRaisedBy } from './external-conversation-prompt-audience'
@@ -15,7 +8,9 @@ import type { LinkedConversation } from './external-conversation-links'
 import { conversationPane } from './external-conversation-types'
 import { isConversationReport } from './external-conversation-turn-opener'
 import { ToldWorkLinks } from './external-conversation-told-work-links'
-import { ConversationWorkers, type ConversationWorkersDeps } from './external-conversation-workers'
+import { wokenTurn } from './external-conversation-wake-answers'
+import { ConversationWorkers } from './external-conversation-workers'
+import type { ChatTurnsDeps } from './external-conversation-chat-turns-deps'
 import {
   endAdoptedTurn,
   endMirroredTurn,
@@ -24,9 +19,7 @@ import {
   readOnce,
   turnFailure,
   turnReply,
-  type ChatTurnEnd,
-  type ChatTurnReplies,
-  type SlackMirrorTurn
+  type ChatTurnEnd
 } from './external-conversation-turn-ends'
 
 import { chatTurnFor, conversationOwnsTurn, leadOf } from './external-conversation-turn-state'
@@ -48,43 +41,7 @@ export class ChatTurns {
   private readonly prompts: PromptTurns
   readonly workers: ConversationWorkers
 
-  constructor(
-    private readonly deps: ConversationWorkersDeps &
-      ChatTurnReplies & {
-        readHookRow: (paneKey: string) => AgentStatusIpcPayload | null
-        pendingPrompt: (link: ExternalConversationLink) => PendingPrompt | null
-        /** Read once per ended turn. */
-        chatTurnOrigin: (sessionId: string, turnAt: number | null) => ConnectorTurnOrigin
-        /** Whether a delivery was sent to the chat and its turn hasn't ended. */
-        chatTurnDelivered: (sessionId: string) => boolean
-        /** The delivery a chat turn that began at `turnAt` answers; taken once. */
-        chatTurnDelivery: (sessionId: string, turnAt: number) => string | undefined
-        /** Whether a delivery the chat took waits for a turn to name it. */
-        chatTurnWaiting: (sessionId: string) => boolean
-        /** Whether reports from workers its conversation's turns started opened the chat's running turn. */
-        runningTurnReported: (sessionId: string) => boolean
-        /** Read once per ended turn of a bot conversation. */
-        workLinks: (link: ExternalConversationLink) => Promise<ConnectorWorkLink[]>
-        /** The ended Orca-typed turn's owner posts to its Slack thread (taken once), else null. */
-        mirrorTurn?: (sessionId: string) => SlackMirrorTurn | null
-        /** Whom a chat's conversation acts for, as Orca recorded it (ConnectorActsFor). */
-        actsForOf?: (sessionId: string) => string | undefined
-        /** Whether the cloud routes or masks a prompt by who raised it (prompts.audience). Without
-         *  it a prompt of a turn its conversation didn't ask for goes nowhere, as before. */
-        promptsAudience: () => boolean
-        /** The message that opened the chat's running turn; null when none runs. Read once per shown
-         *  prompt, and per watch for a link that kept an adopted turn. */
-        turnOpener: (sessionId: string) => AgentJournalRenderItem | null
-        /** Keeps (or, with undefined, clears) the adopted turn's opener on the link. */
-        turnStartedAt?: (sessionId: string) => number | null
-        keepAdoptedTurn: (
-          linked: LinkedConversation,
-          opener: ExternalConversationLink['adoptedTurn']
-        ) => void
-        /** A chat's turn ended, heard or not. */
-        turnEnded?: (paneKey: string) => void
-      }
-  ) {
+  constructor(private readonly deps: ChatTurnsDeps) {
     this.workers = new ConversationWorkers(deps)
     this.toldLinks = new ToldWorkLinks(deps.workLinks)
     this.prompts = new PromptTurns({
@@ -308,6 +265,20 @@ export class ChatTurns {
       return
     }
     void news.readTurn().then(async (turn) => {
+      // Mail finishing what its conversation asked (its workers' reports, another bot's answer to its
+      // request) woke the chat, so the answer goes back there; other mail is answered in Orca.
+      const opener = turn.opener ?? turn.latestOpener
+      const reported =
+        origin === 'local' && !shared && Boolean(opener && isConversationReport(opener.body))
+      // A wake-up for runs launched for the conversation alone answers there, by its words only.
+      // Judged for the conversation it would post to, still linked once read; a wake-up someone
+      // stopped (or that another turn replaced) posts nothing, a failed one still says so.
+      const woken =
+        origin === 'local' &&
+        !shared &&
+        (news.outcome === 'success' || news.outcome === 'failure') &&
+        sameConversation(this.deps.linkedFor(paneKey), linked) &&
+        wokenTurn(turn, linked.link)
       const reply = turnReply(linked.link, turn)
       const links = readOnce(() => this.toldLinks.next(paneKey, linked.link))
       const fill = this.deps.replyFill?.()
@@ -316,27 +287,28 @@ export class ChatTurns {
         return
       }
       const words = legacyTurnWords(turn, linked.link, replied, reply)
-      // Mail finishing what its conversation asked (its workers' reports, another bot's answer to its
-      // request) woke the chat, so the answer goes back there; other mail is answered in Orca.
-      const opener = turn.opener ?? turn.latestOpener
-      const reported =
-        origin === 'local' && !shared && Boolean(opener && isConversationReport(opener.body))
-      if (!heard && !reported) {
+      if (!heard && !reported && !woken) {
         // No one in the thread asked: a bot's turn Orca raised tells how it went, never what it said.
         if (linked.link.bot && promptRaisedBy(linked.link, turn.opener ?? null) === 'orca') {
           endAdoptedTurn(end, this.deps.promptsAudience, turn)
         }
         return
       }
-      const [workLinks] = await Promise.all([links(), this.workers.check(paneKey, 'turn-ended')])
-      if (generation !== this.generation) {
+      // A wake-up posts its final words only: no work links to look up for it.
+      const told = heard || reported ? links() : Promise.resolve([])
+      const [workLinks] = await Promise.all([told, this.workers.check(paneKey, 'turn-ended')])
+      // Still the conversation it was judged for, after the waits.
+      const stale = woken && !sameConversation(this.deps.linkedFor(paneKey), linked)
+      if (generation !== this.generation || stale) {
         return
       }
       // Owner words steered in and posted to the thread go before the answer.
       ;(mirrored ? mirrored.release : this.deps.emit)({
         ...ended,
+        // A watch begun mid-turn never saw a wake-up's start: the turn's own start places it.
+        turnId: ended.turnId ?? (woken ? turn.startedAt : undefined) ?? null,
         ...end.turnFor(turn),
-        origin: reported ? 'delivery' : origin,
+        origin: reported || woken ? 'delivery' : origin,
         ...(words ? { lastAssistantMessage: words } : {}),
         ...turnFailure(end, turn),
         ...(workLinks.length > 0 ? { links: workLinks } : {})
@@ -359,4 +331,14 @@ export class ChatTurns {
     this.leadState.clear()
     this.workers.clear()
   }
+}
+
+/** The pane is still linked to the conversation it was when its end arrived. */
+function sameConversation(now: LinkedConversation | null, then: LinkedConversation): boolean {
+  return (
+    !!now &&
+    now.link.source === then.link.source &&
+    now.link.externalId === then.link.externalId &&
+    now.workspace.worktreeId === then.workspace.worktreeId
+  )
 }

@@ -1,5 +1,6 @@
 import type { AgentJournalCursor } from '../../shared/agent-session/journal/agent-session-journal-identity'
 import type {
+  AgentJournalMessageItem,
   AgentJournalRenderItem,
   AgentJournalSnapshot
 } from '../../shared/agent-session/journal/agent-session-journal-types'
@@ -9,10 +10,13 @@ import {
 } from '../../shared/agent-session/journal/journal-connector-reply-turn'
 import type { AgentSessionFailureFact } from '../../shared/agent-session/failures/agent-session-failure'
 import {
+  isSelfStartedTurnRow,
   latestStructuredAgentSessionAssistantMessage,
   latestStructuredAgentSessionFailure,
+  steeredInto,
   structuredAgentSessionTurnAssistantMessage
 } from '../../shared/agent-session/requests/structured-agent-session-latest-request'
+import { readAgentJournalTurn } from '../../shared/agent-session/lifecycle/records/agent-session-turn-record'
 import type { ConversationChat } from './external-conversation-chat'
 import {
   endedChatTurnRow,
@@ -21,6 +25,14 @@ import {
 } from './external-conversation-turn-opener'
 
 // A chat's ended turn, read from its journal as of the turn's end.
+
+/** A background run the turn's root agent launched, with the inputs it had taken by then: where each
+ *  send came from (null: typed in Orca, or not found), and the runs that woke it. */
+export type EndedTurnLaunch = {
+  run: string
+  sends: ({ source: string; externalId: string } | null)[]
+  runs: string[]
+}
 
 export type EndedChatTurn = {
   opener?: AgentJournalRenderItem | null
@@ -34,6 +46,13 @@ export type EndedChatTurn = {
   turnItemId?: string
   stamps?: ConnectorReplyStamp[]
   turnProse?: string
+  /** On a turn the agent opened itself: the runs (by the call that started each) that woke it (empty
+   *  when nothing named the wake-up), whether someone steered a message into it, and each of those
+   *  runs' launches as the turns that launched them recorded them (none found: not recorded, or
+   *  gone). */
+  wake?: { wokenBy: string[]; steered: boolean; launches: EndedTurnLaunch[] }
+  /** When the turn's row says it began, for a watch that never saw it start. */
+  startedAt?: number
 }
 
 export async function endedTurn(
@@ -68,15 +87,94 @@ export async function endedTurn(
   }
   const items = journal.items.filter((item) => item.sequence <= cursor.sequence)
   const opener = await readEndedChatTurnOpener(() => chat.journalReads(sessionId), items, turnId)
-  const lastAssistantMessage = latestStructuredAgentSessionAssistantMessage(items)
   const failure = latestStructuredAgentSessionFailure(items, journal.submissions)
+  const row = endedChatTurnRow(items, turnId)
+  const lifecycle = row && readAgentJournalTurn(row.body)
+  const wokenBy = lifecycle?.wokenBy ?? []
+  const wake =
+    row && lifecycle && isSelfStartedTurnRow(row, () => false)
+      ? {
+          wokenBy,
+          steered: steeredInto(journal.submissions, row.itemId),
+          launches: lifecycle.wokeFrom?.length
+            ? await launchesOf(chat, sessionId, cursor, lifecycle.wokeFrom)
+            : []
+        }
+      : undefined
+  // A wake-up has no message of its own to stop at: only its own prose is its answer.
+  const lastAssistantMessage =
+    wake && row
+      ? structuredAgentSessionTurnAssistantMessage(items, row.itemId)
+      : latestStructuredAgentSessionAssistantMessage(items)
   return {
+    ...(wake ? { wake } : {}),
+    ...(lifecycle?.startedAt === undefined ? {} : { startedAt: lifecycle.startedAt }),
     ...(lastAssistantMessage ? { lastAssistantMessage } : {}),
     ...(failure ? { failure } : {}),
     latestOpener: latestTurnOpener(items),
     ...(opener === undefined ? {} : { opener }),
     ...outboxTurn(items, journal.submissions, opener, turnId)
   }
+}
+
+/** The launch of each run the wake-up names, read from the row that recorded it, with each send's
+ *  conversation: point reads only. None when the journal was reset since the wake-up's end; a row
+ *  gone or hidden, or one whose launches don't name the run, gives none for that run. */
+async function launchesOf(
+  chat: ConversationChat,
+  sessionId: string,
+  cursor: AgentJournalCursor,
+  wokeFrom: readonly { run: string; turn: string }[]
+): Promise<EndedTurnLaunch[]> {
+  const reads = await chat.journalReads(sessionId).catch(() => null)
+  const now = await reads?.cursor().catch(() => null)
+  if (!reads || now?.epoch !== cursor.epoch) {
+    return []
+  }
+  // Each row and send read once, however many runs share it.
+  const rows = new Map<string, Promise<AgentJournalRenderItem | null>>()
+  const senders = new Map<string, Promise<EndedTurnLaunch['sends'][number]>>()
+  const rowOf = (turn: string) =>
+    rows.get(turn) ??
+    rows
+      .set(
+        turn,
+        reads.item(turn).catch(() => null)
+      )
+      .get(turn)!
+  const senderOf = (send: string) =>
+    senders.get(send) ??
+    senders
+      .set(
+        send,
+        reads
+          .submissionBody(send)
+          .then(sentFrom)
+          .catch(() => null)
+      )
+      .get(send)!
+  const launches = await Promise.all(
+    wokeFrom.map(async ({ run, turn }) => {
+      const row = await rowOf(turn)
+      const launch = readAgentJournalTurn(row?.body)?.launches?.find((entry) => entry.run === run)
+      if (!launch) {
+        return []
+      }
+      const sends = await Promise.all(launch.sends.map(senderOf))
+      return [{ run, sends, runs: launch.runs }]
+    })
+  )
+  return launches.flat()
+}
+
+/** The conversation whose delivery a send was, as written on its message when delivered. A
+ *  delivery the owner edited (it loses its connector origin) is the owner's own. */
+function sentFrom(body: AgentJournalMessageItem | null): EndedTurnLaunch['sends'][number] {
+  if (body?.kind !== 'message') {
+    return null
+  }
+  const delivered = body.origin === 'connector' ? body.connectorDelivery?.conversation : undefined
+  return body.connectorConversation ?? delivered ?? null
 }
 
 /** Whom an ended turn acts for, from its own rows by index (STA-16396 moves the other ends here).

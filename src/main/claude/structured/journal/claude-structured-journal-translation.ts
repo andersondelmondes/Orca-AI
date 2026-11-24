@@ -13,7 +13,6 @@ import {
   isClaudeProgressFrame
 } from '../launch/claude-structured-provider-fallback'
 import { ClaudeBackgroundTaskRows } from '../../background-tasks/claude-background-task-rows'
-import { ClaudeToolOriginRegistry } from '../../subagents/claude-tool-origin-registry'
 import { createClaudeStreamedThinking } from './claude-streamed-thinking'
 import { ClaudeSubagentIdentities } from '../../subagents/claude-subagent-identities'
 import { ClaudeJournaledSubagents } from '../../subagents/claude-subagent-journaled-identities'
@@ -70,7 +69,7 @@ export function createClaudeJournalTranslator(
   const context = new ClaudeContextFacts(turn, deps.sink)
   const fallbackId = deps.fallbackIdPrefix ?? 'acquisition'
   const providerFallback = createClaudeProviderFrameFallback(deps.sink, fallbackId, turnScope)
-  const toolOrigins = new ClaudeToolOriginRegistry()
+  const toolOrigins = turn.inputs.toolOrigins
   const journaled = new ClaudeJournaledSubagents(() => deps.sink.journalSnapshot?.() ?? null)
   const taskInvocations = new ClaudeTaskInvocations(journaled)
   const subagents = new ClaudeSubagentIdentities({
@@ -169,7 +168,7 @@ export function createClaudeJournalTranslator(
       finish(event.observedAt ?? Date.now(), event.failure?.kind === 'pluginInputRequired')
       return
     }
-    turn.observeStartedSend(event.type === 'message' ? (event.startedSend ?? null) : null)
+    turn.observeEvent(event)
     if (event.type === 'message') {
       context.observe(event.message, event.observedAt ?? Date.now())
       // Root init starts a cycle; replays after root work fold into it, while task frames do not mark cycle work.

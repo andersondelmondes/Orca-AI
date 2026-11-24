@@ -16,7 +16,11 @@ import { readClaudeFrameString } from '../startup/claude-structured-init-proof'
 import { claudeText } from '../journal/claude-structured-item-translation'
 import { isRootClaudeFrame } from './claude-turn-opening'
 import type { ClaudeLateDispatchSettlement } from './claude-replay-turn-resolution'
-import type { ClaudeSession, ClaudeStartedSend } from '../claude-structured-session-state'
+import type {
+  ClaudeHandedSends,
+  ClaudeSession,
+  ClaudeStartedSend
+} from '../claude-structured-session-state'
 
 const UNSTARTED_VERDICT = {
   cancelled: 'cancelled',
@@ -102,9 +106,15 @@ function claudeUserRenamedSession(
   return claudeText(message.title)
 }
 
-type ClaudeFrameSendFacts = { startedSend?: ClaudeStartedSend; renamedTo?: string }
+type ClaudeFrameSendFacts = {
+  startedSend?: ClaudeStartedSend
+  renamedTo?: string
+  handedSends?: ClaudeHandedSends
+  handedPending?: true
+}
 // Most frames carry neither fact; this runs on every frame, streaming deltas included.
 const NO_SEND_FACTS: ClaudeFrameSendFacts = Object.freeze({})
+const HANDED_PENDING: ClaudeFrameSendFacts = Object.freeze({ handedPending: true })
 
 /** Send facts read when the frame arrives: its delivery can run after the send's echo settles it. */
 export function claudeFrameSendFacts(
@@ -114,10 +124,50 @@ export function claudeFrameSendFacts(
 ): ClaudeFrameSendFacts {
   const startedSend = !startsTurn && session ? claudeStartedUnechoedSend(session) : null
   const renamedTo = claudeUserRenamedSession(session, message)
-  if (!startedSend && !renamedTo) {
-    return NO_SEND_FACTS
+  // Read only where a launch is stamped, so other frames build nothing.
+  const handedSends =
+    message.type === 'system' && message.subtype === 'task_started'
+      ? claudeHandedSends(session)
+      : undefined
+  const pending = claudeHandsPending(session)
+  if (!startedSend && !renamedTo && !handedSends) {
+    return pending ? HANDED_PENDING : NO_SEND_FACTS
   }
-  return { ...(startedSend ? { startedSend } : {}), ...(renamedTo ? { renamedTo } : {}) }
+  return {
+    ...(startedSend ? { startedSend } : {}),
+    ...(renamedTo ? { renamedTo } : {}),
+    ...(handedSends ? { handedSends } : {}),
+    ...(pending ? { handedPending: true as const } : {})
+  }
+}
+
+/** Orca holds a send it handed Claude and hasn't seen reported settled (the list below is not
+ *  empty), or has no session to tell: checked on every frame, so it builds nothing. */
+function claudeHandsPending(session: ClaudeSession | null): boolean {
+  return (
+    !session ||
+    session.dispatchWaiters.length > 0 ||
+    session.retiredDispatchWaiters.length > 0 ||
+    (session.unreportedSettlements?.size ?? 0) > 0
+  )
+}
+
+/** Every send Orca has handed Claude and not seen reported settled: waiting in any state (queued,
+ *  started, steering), retired in doubt, or settled by the frame in hand. Read from Orca's own list,
+ *  not Claude's echoes, which can come after Claude acted on the send. No session names none. */
+export function claudeHandedSends(session: ClaudeSession | null): ClaudeHandedSends {
+  if (!session) {
+    return { ids: [], unnamed: true }
+  }
+  const waiters = [...session.dispatchWaiters, ...session.retiredDispatchWaiters]
+  const ids = new Set(waiters.flatMap((waiter) => waiter.clientMessageId ?? []))
+  for (const id of session.unreportedSettlements ?? []) {
+    ids.add(id)
+  }
+  return {
+    ids: [...ids],
+    unnamed: waiters.some((waiter) => waiter.clientMessageId === null)
+  }
 }
 
 /** Include settlements until the host hears them, avoiding a gap in dispatch ownership. */

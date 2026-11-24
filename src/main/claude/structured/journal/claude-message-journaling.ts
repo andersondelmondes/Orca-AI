@@ -175,6 +175,7 @@ export function journalClaudeMessage(
       ctx.toolOrigins.recordChildOwned(tool.id, envelope.parentToolUseId)
     } else {
       ctx.toolOrigins.recordTopLevel(tool.id)
+      ctx.turn.inputs.rootCall(tool)
     }
     const toolIdentity = claudeToolIdentity(envelope.sessionId, tool.id)
     const toolBody = claudeToolBody({ tool })
@@ -235,7 +236,10 @@ export function journalClaudeMessage(
     ctx.turn.allowReopen()
     // Output can open the send's turn before its echo confirms delivery.
     if (!clientMessageId || ctx.turn.userItemId !== agentJournalSubmissionKey(clientMessageId)) {
-      ctx.turn.open(sendEchoTurn, observedAt)
+      ctx.turn.open(
+        { ...sendEchoTurn, ...(clientMessageId ? { openedBy: clientMessageId } : {}) },
+        observedAt
+      )
     } else {
       ctx.turn.confirmProviderCycle()
     }
