@@ -83,4 +83,17 @@ export type UsageLimitAccountVerdict = {
   unknownReset: boolean
   /** Due, but no reading taken since that reset has arrived yet. */
   awaitingReading: boolean
+  /** The chat moved to another account and no reading of it taken since the move has arrived, so
+   *  `resetsAt` (capped at the move) is not yet known to be when it is free. */
+  moveUnread: boolean
+}
+
+/** Whether `account` has a reading of its own (not a live session's) taken at or after `since`. */
+export function readSince(account: UsageLimitAccountUsage | undefined, since: number): boolean {
+  const reading = account?.read()
+  return (
+    reading?.status === 'ok' &&
+    reading.usageMetadata?.source !== 'live-session' &&
+    reading.updatedAt >= since
+  )
 }

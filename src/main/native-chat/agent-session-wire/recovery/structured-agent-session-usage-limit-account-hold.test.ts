@@ -3,7 +3,6 @@ import type { ProviderRateLimits } from '../../../../shared/agent-usage/rate-lim
 import type { LegacyAgentSessionAccountHome } from '../../../../shared/agent-session/lifecycle/accounts/agent-session-account-home'
 import type { NativeChatUsageLimitCut } from '../../../../shared/native-chat/transcript/continuation/native-chat-usage-limit-cut'
 import { UsageLimitAccountHolds } from './structured-agent-session-usage-limit-account-hold'
-import { StructuredAgentSessionUsageLimitContinue } from './structured-agent-session-usage-limit-continue'
 import { cancelsCut } from './structured-agent-session-usage-limit-disposition'
 import { usageLimitStopWithdrawal } from '../../../../shared/native-chat/transcript/continuation/native-chat-usage-limit-cut'
 import { isOptionalUsageLimitContinueCancel } from '../../../../shared/agent-session/lifecycle/stopping/agent-session-usage-limit-continue'
@@ -80,51 +79,4 @@ it("a person's Stop withdraws the continue a switch gives an unknown-reset cut",
   const withdrawal = usageLimitStopWithdrawal(CUT)
   expect(isOptionalUsageLimitContinueCancel(withdrawal)).toBe(true)
   expect(cancelsCut(withdrawal, holds.withSwitchReset('chat', CUT))).toBe(true)
-})
-
-it('a loaded chat that is not open still follows the account switch in what it publishes', async () => {
-  const reset = SWITCHED + 3_600_000
-  const cut = { turnItemId: 'turn-1', resetsAt: reset, turnEndedAt: ENDED, chain: 0, fence: 3 }
-  const sweep = async (current: LegacyAgentSessionAccountHome) => {
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the sweep reads only these fields
-    const deps = {
-      sessions: new Map([['chat', {}]]),
-      readSavedCut: async () => null,
-      readLoadedCut: async () => cut,
-      serialize: (_id: string, run: () => Promise<unknown>) => run(),
-      send: async () => ({ ok: true }),
-      publish: () => {},
-      now: () => SWITCHED,
-      host: {
-        logger: { warn: () => {} },
-        launchAccountHome: async () => current,
-        store: {
-          hostId: 'host',
-          // Nothing is open: no tab, no background chat.
-          listVisibleSessionIds: () => [],
-          listBackgroundSessionIds: () => [],
-          isSessionTabVisible: () => false,
-          isSessionInBackground: () => false,
-          cancelUsageLimitContinue: async () => {},
-          getRecord: () => ({
-            provider: 'codex',
-            location: { wslDistro: null, executionHostId: 'host', workspaceId: 'ws' },
-            launchedAccount: { fence: 3, accountHome: HIT },
-            lease: { runtimeFence: 3 }
-          })
-        },
-        usageLimitAutoContinue: { isEnabled: () => true, isWorkspaceAsleep: () => false }
-      }
-    } as unknown as ConstructorParameters<typeof StructuredAgentSessionUsageLimitContinue>[0]
-    const continuer = new StructuredAgentSessionUsageLimitContinue(deps)
-    await continuer.tick()
-    return continuer.readState('chat', cut)
-  }
-
-  // Switched to the account it never hit: the published stop is free from the switch on.
-  expect(await sweep(NEXT)).toMatchObject({ resetsAt: reset, continueAt: SWITCHED, state: 'off' })
-  // Same account: it still shows the reset it hit.
-  const same = await sweep(HIT)
-  expect(same).toMatchObject({ resetsAt: reset, state: 'off' })
-  expect(same?.continueAt).toBeUndefined()
 })

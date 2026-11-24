@@ -17,11 +17,13 @@ import {
 import {
   attributionBinding,
   attributionBindingHolds,
+  readSince,
   type UsageLimitAccountAttributionHost as AttributionHost,
   type UsageLimitAccountScope,
   type UsageLimitAttributionBinding,
   type UsageLimitAccountVerdict
 } from './structured-agent-session-usage-limit-account-scope'
+import { UsageLimitAccountMoves } from './structured-agent-session-usage-limit-account-move'
 import {
   askForRoom,
   sameAccountHome,
@@ -54,11 +56,7 @@ export class UsageLimitAccountHolds {
   private readonly scopes = new Map<string, UsageLimitAccountScope | undefined>()
   /** What each chat's attribution was computed under. */
   private readonly bindings = new Map<string, UsageLimitAttributionBinding>()
-  /** When each chat was first seen continuing on another account than the one its cut hit. */
-  private readonly movedSince = new Map<
-    string,
-    { cut: string; to: AgentSessionAccountHome; at: number }
-  >()
+  private readonly moves = new UsageLimitAccountMoves()
   private readonly relaunched = new UsageLimitRelaunchedCuts()
   /** Shared by every chat of a pass and keyed by source witness: work scales with accounts and
    *  their changes, not chats. */
@@ -127,14 +125,14 @@ export class UsageLimitAccountHolds {
     }
     this.scopes.set(id, scope)
     this.bindings.set(id, binding)
-    const since = this.movedSince.get(id)
-    if (!movedTo) {
-      this.movedSince.delete(id)
-    } else if (since?.cut !== hit.cut || !sameAccountHome(since.to, movedTo)) {
-      // Each destination counts from when it was chosen, so an older reading of it never releases.
-      this.movedSince.set(id, { cut: hit.cut, to: movedTo, at: now })
-    }
+    this.moves.note(id, hit.cut, movedTo, now)
     this.relaunched.note(id, hit.cut, relaunchedOn, hit.launchFence, now)
+    this.askForMoveReading(id)
+  }
+
+  /** See UsageLimitAccountMoves.askForReading. */
+  askForMoveReading(id: string): void {
+    this.moves.askForReading(id, this.scopes.get(id))
   }
 
   /** A relaunched cut with no reset is scheduled only once room is seen, so no due send asks for
@@ -171,7 +169,7 @@ export class UsageLimitAccountHolds {
   }
 
   retain(shown: ReadonlySet<string>): void {
-    for (const cache of [this.holds, this.scopes, this.bindings, this.movedSince]) {
+    for (const cache of [this.holds, this.scopes, this.bindings]) {
       for (const id of cache.keys()) {
         if (!shown.has(id)) {
           cache.delete(id)
@@ -179,13 +177,14 @@ export class UsageLimitAccountHolds {
       }
     }
     this.relaunched.retain(shown)
+    this.moves.retain(shown)
   }
 
   clear(): void {
     this.holds.clear()
     this.scopes.clear()
     this.bindings.clear()
-    this.movedSince.clear()
+    this.moves.clear()
     this.relaunched.clear()
     this.beginPass()
   }
@@ -199,13 +198,10 @@ export class UsageLimitAccountHolds {
     now = Date.now()
   ): T & SwitchReset {
     const key = switchFreeIdentity(cut)
-    const moved = this.movedSince.get(id)
     const resetsAt =
       cut.resetsAt !== undefined
         ? undefined
-        : moved?.cut === key
-          ? moved.at
-          : this.relaunchRoomAt(id, key, now)
+        : (this.moves.at(id, key) ?? this.relaunchRoomAt(id, key, now))
     return resetsAt === undefined ? cut : { ...cut, resetsAt, resetFromSwitch: true }
   }
 
@@ -220,16 +216,21 @@ export class UsageLimitAccountHolds {
     now: number
   ): UsageLimitAccountVerdict {
     // The account the chat moved to never hit this cut: from the move on, only its reading holds.
-    const moved = this.movedSince.get(id)
-    const movedCut = moved?.cut === switchFreeIdentity(limited)
-    const cut = movedCut ? { ...limited, resetsAt: Math.min(limited.resetsAt, moved.at) } : limited
+    const movedAt = this.moves.at(id, switchFreeIdentity(limited))
+    const cut =
+      movedAt !== undefined
+        ? { ...limited, resetsAt: Math.min(limited.resetsAt, movedAt) }
+        : limited
     const scope = this.scopes.get(id)
+    const account = scope?.account
+    // Only a reading taken since the cut's reset can speak for the account at that reset.
+    const fresh = (since: number) => readSince(account, since)
+    const moveUnread = movedAt !== undefined && !fresh(movedAt)
     let hold = this.holds.get(id)
     // Nothing attributed and nothing held: the cut decides, and nothing is kept for it.
     if (!hold && !scope) {
-      return { resetsAt: cut.resetsAt, unknownReset: false, awaitingReading: false }
+      return { resetsAt: cut.resetsAt, unknownReset: false, awaitingReading: false, moveUnread }
     }
-    const account = scope?.account
     if (
       hold?.cut !== identity(cut) ||
       (scope && hold.scope !== scope.scope) ||
@@ -240,11 +241,6 @@ export class UsageLimitAccountHolds {
     }
     hold.account = account?.key ?? hold.account
     const reading = account?.read()
-    // Only a reading taken since the cut's reset can speak for the account at that reset.
-    const fresh = (since: number) =>
-      reading?.status === 'ok' &&
-      reading.usageMetadata?.source !== 'live-session' &&
-      reading.updatedAt >= since
     // Eligibility first: the cut's own reset, this hold (an unknown reset holds from the last reading
     // that showed it), or a spent window that covered that reset. Later spending never revives a cut
     // that is overdue from all of them.
@@ -260,7 +256,7 @@ export class UsageLimitAccountHolds {
     if (
       account &&
       reading &&
-      fresh(movedCut ? Number.NEGATIVE_INFINITY : cut.resetsAt) &&
+      fresh(movedAt !== undefined ? Number.NEGATIVE_INFINITY : cut.resetsAt) &&
       now - anchor <= NATIVE_CHAT_USAGE_LIMIT_MAX_OVERDUE_MS
     ) {
       if (typeof covering === 'number') {
@@ -304,6 +300,7 @@ export class UsageLimitAccountHolds {
     return {
       resetsAt,
       unknownReset: hold.unknownReset === true,
+      moveUnread,
       awaitingReading:
         (account ? !fresh(resetsAt) : scope?.bootstrap !== undefined) &&
         now >= waitFrom &&
