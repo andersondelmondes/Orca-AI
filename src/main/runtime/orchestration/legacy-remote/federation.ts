@@ -32,6 +32,7 @@ import { assertWorkerStartTaskSpecWithinPromptBudget } from '../../rpc/methods/o
 import { prepareFederatedAttachmentAuthority } from './federation-attachment-authority'
 import { resolveRpcWorkspaceCreatorProvenance } from '../../rpc/callers/workspace-creator-context'
 import { claimTerminalForRemoteAttach } from '../db/worker-dispatch/worker-terminal-claim'
+import { federatedAttachmentChatLineage } from '../legacy-remote-home/federated-worker-chat-lineage'
 
 export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
   defineOrchestrationMethod({
@@ -44,7 +45,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
     permission: 'workspace',
     params: FederationAttachStartParams,
     handler: async (params, context) => {
-      const { runtime, orchestrationMutation } = context
+      const { runtime, orchestrationMutation, authenticatedCallerFingerprint } = context
       if (!orchestrationMutation) {
         throw new OrchestrationError(
           'invalid_argument',
@@ -85,6 +86,10 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
       }
 
       const db = runtime.getOrchestrationDb()
+      const chatLineage = federatedAttachmentChatLineage(
+        params.chatLineage,
+        Boolean(authenticatedCallerFingerprint)
+      )
       // Synchronous through the insert, so a racing start on the same terminal is refused before any wait.
       const releaseTerminalClaim = claimTerminalForRemoteAttach(db, params.terminal, runtime, {
         dispatchId: params.dispatchId,
@@ -99,6 +104,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
           protocolVersion: params.protocolVersion,
           runtimeEpoch: runtime.getRuntimeId(),
           depth: params.depth,
+          chatLineage,
           mutationReceipt: orchestrationMutation
         })
       } catch (error) {
@@ -249,7 +255,8 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
               // Enforce the execution host's nesting cap using its own setting.
               canDispatchSubWorkers: (params.depth ?? 1) < runtime.getNestedWorkerMaxDepth(),
               subWorkersInOwnRun: true,
-              cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle)
+              cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle),
+              preserveHumanCommitCredit: chatLineage
             })
           }
         }).finally(() => briefGuard?.dispose())

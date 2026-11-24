@@ -9,6 +9,7 @@ import {
   DISPATCH_CONTEXT_COLUMN_LIST,
   REMOTE_DISPATCH_ATTACHMENT_COLUMN_LIST
 } from './row-column-lists'
+import { isEquivalentPaneKey } from './pane-key-match'
 
 export type DispatchCreatorTurnSource = NonNullable<DispatchContextRow['creator_turn_source']>
 
@@ -97,14 +98,18 @@ function findPotentiallyLiveAttachmentsForCreator(
     )
     .all(creator.processIncarnation) as RemoteDispatchAttachmentRow[]
 
-  return rows
+  return rows.filter((row) => isEquivalentPaneKey(row.pane_key!, creator.paneKey!))
 }
 
 /** Whether the creator's own live Dispatch starts its workers as chats: the row depth reads, one indexed lookup. */
 export function creatorStartsChatWorkers(this: OrchestrationDb, creator: DispatchCreator): boolean {
   return (
     creator.kind !== 'system' &&
-    findActiveDispatchForCreator.call(this, creator)?.chat_lineage === 1
+    (findActiveDispatchForCreator.call(this, creator)?.chat_lineage === 1 ||
+      (creator.kind === 'terminal' &&
+        findPotentiallyLiveAttachmentsForCreator
+          .call(this, creator)
+          .some((attachment) => attachment.chat_lineage === 1)))
   )
 }
 
