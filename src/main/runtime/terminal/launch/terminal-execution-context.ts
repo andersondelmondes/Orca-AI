@@ -5,6 +5,39 @@ export abstract class OrcaRuntimeWithPreparePtyExecutionContext extends OrcaRunt
 
   protected abstract replaceHeadlessTerminalAfterExecutionContextChange(ptyId: string): void
 
+  readQueuedLaunchPty(ptyId: string) {
+    const pty = this.ptysById.get(ptyId)
+    const controller = this.ptyController
+    if (!pty?.connected && !controller?.hasPty?.(ptyId)) {
+      return null
+    }
+    const generation = this.ptyLifecycleGenerationById.get(ptyId)
+    const pendingRegistration = this.pendingPtyRegistrationIncarnations.get(ptyId)
+    const incarnationId = pty?.incarnationId
+    const { connected, connectionId, isWsl } = pty ?? {}
+    const readWslDistro = () => this.wslDistroByPtyId.get(ptyId) ?? pty?.wslDistro
+    const wslDistro = readWslDistro()
+    return {
+      connectionId,
+      isWsl,
+      wslDistro,
+      isCurrent: () =>
+        this.ptyController === controller &&
+        this.ptyLifecycleGenerationById.get(ptyId) === generation &&
+        this.pendingPtyRegistrationIncarnations.get(ptyId) === pendingRegistration &&
+        this.ptysById.get(ptyId) === pty &&
+        pty?.incarnationId === incarnationId &&
+        pty?.connected === connected &&
+        pty?.connectionId === connectionId &&
+        pty?.isWsl === isWsl &&
+        readWslDistro() === wslDistro &&
+        Boolean(pty?.connected || controller?.hasPty?.(ptyId)),
+      readForegroundProcess: () => controller?.getForegroundProcess?.(ptyId),
+      readCwd: async () =>
+        this.terminalCwdByPtyId.get(ptyId) || (await controller?.getCwd?.(ptyId)) || undefined
+    }
+  }
+
   preparePtyExecutionContext(
     ptyId: string,
     wslDistro: string | null,

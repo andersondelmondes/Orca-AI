@@ -8,9 +8,11 @@ import { resolveQualifiedAgentDetectionHost } from './preflight-workspace-target
 import { listInstalledWorkspaceAgents } from './installed-agents'
 import { runPreflightCheck } from '../../../../preflight/agent-detection'
 import { detectRemoteWindowsTerminalCapabilities } from '../../../../ipc/preflight/preflight-remote-windows-terminal-capabilities'
+import { prepareQueuedAgentLaunch } from '../../../../preflight/prepare-queued-agent-launch'
 
 import {
   assertAgentDetectionHostRunning,
+  detectAgentInventoryOnHost,
   detectAgentsOnHost,
   refreshAgentsOnHost
 } from '../../../../preflight/workspace-agent-detection'
@@ -56,6 +58,17 @@ export const PREFLIGHT_METHODS = [
     params: PreflightProjectAgentDetection,
     // Only the host knows the workspace's actual project runtime, including WSL.
     handler: async (params, { runtime }) => {
+      if (params.launch) {
+        const ptyId = runtime.getTerminalPtyIdForHandle(params.launch.terminal)
+        return ptyId
+          ? prepareQueuedAgentLaunch(
+              runtime,
+              ptyId,
+              params.launch,
+              runtime.requireStore().getSettings()
+            )
+          : { preparedCommand: null }
+      }
       if (params.project) {
         // Ungated: it serves a workspace create in that project, which boots the distro anyway.
         return runtime.detectProjectLaunchContext(params.project.repo)
@@ -63,7 +76,9 @@ export const PREFLIGHT_METHODS = [
       const host = await resolveQualifiedAgentDetectionHost(runtime, params)
       // A client's inventory read is background work: it must not start a stopped WSL distro (E9).
       await assertAgentDetectionHostRunning(host)
-      return detectAgentsOnHost(host, hostDetectionOptions(runtime))
+      return params.withManagedAgentCommands
+        ? detectAgentInventoryOnHost(host, hostDetectionOptions(runtime))
+        : detectAgentsOnHost(host, hostDetectionOptions(runtime))
     }
   }),
   defineMethod({

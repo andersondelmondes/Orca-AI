@@ -32,10 +32,13 @@ export function useNativeChatHostCommandTerminal(input: {
       openingRef.current = true
       setOpening(true)
       return (async () => {
+        if (environmentId && !(await startStoppedWslHostForUserAct(environmentId))) {
+          return false
+        }
+        if (!command) {
+          return false
+        }
         if (environmentId) {
-          if (!(await startStoppedWslHostForUserAct(environmentId))) {
-            return false
-          }
           const outcome = await createWebRuntimeSessionTerminalOnHost(
             {
               worktreeId,

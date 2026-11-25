@@ -21,6 +21,10 @@ import {
   type AgentStartupShell
 } from './tui-agent-startup-shell'
 import type { TuiAgent } from '../catalog/tui-agent'
+import { withManagedAgentProgram, type ManagedAgentCommands } from './managed-agent-launch-program'
+import { CODEX_EXECUTABLE } from './codex-startup-image-command'
+import { launchExecutableIs, readLaunchArguments, readLaunchPosition } from './launch-position'
+import { antigravityModelArgs } from './antigravity-resume-model-args'
 
 // Why: Enter on Codex's "Update available" screen picks "Update now", which installs and exits.
 const STARTUP_UPDATE_PROMPT_SUPPRESSION_ARGS: Partial<Record<TuiAgent, readonly string[]>> = {
@@ -53,11 +57,6 @@ function agentTerminalInputArgs(
     : []
 }
 
-function isCodexExecutable(token: string | undefined): boolean {
-  const basename = token?.split(/[\\/]/).pop()?.toLowerCase()
-  return basename !== undefined && /^codex(?:\.(?:exe|cmd|bat|ps1))?$/.test(basename)
-}
-
 /** Appends the per-launch terminal input flags to a recorded agent command. */
 export function withAgentTerminalInputArgs(
   command: string,
@@ -67,15 +66,15 @@ export function withAgentTerminalInputArgs(
   shell: AgentStartupShell
 ): string {
   const inputArgs = agentTerminalInputArgs(agent, platform)
-  const tokens = tokenizeStartupCommand(command, shell)
-  // Why: only a lone Codex invocation is safe; a wrapper may not forward -c, a compound line would
-  // hand it to another command, and the command may already set it or end its options with `--`.
-  return inputArgs.length &&
-    !/[;&|<>`$()\n]/.test(command) &&
-    tokens.ok &&
-    isCodexExecutable(tokens.tokens[0]) &&
-    !command.includes('disable_paste_burst') &&
-    !tokens.tokens.includes('--')
+  if (!inputArgs.length) {
+    return command
+  }
+  const launch = readLaunchPosition(command, shell)
+  if (!launch || !launchExecutableIs(launch.executable, CODEX_EXECUTABLE)) {
+    return command
+  }
+  const argv = readLaunchArguments(command, shell, launch)
+  return argv && !command.includes('disable_paste_burst') && !argv.includes('--')
     ? `${command} ${inputArgs.map((arg) => quoteStartupArg(arg, shell)).join(' ')}`
     : command
 }
@@ -84,6 +83,7 @@ export type ResolvedAgentLaunchCommand =
   | {
       ok: true
       command: string
+      argvPromptCommand?: string
       resumeLaunch: { agentCommand: string; agentArgs?: string }
       appliedSessionOptions: Record<string, SessionOptionValue>
       startupEnv?: Readonly<Record<string, string>>
@@ -103,6 +103,7 @@ export function resolveAgentLaunchCommand(args: {
   suppressStartupUpdatePrompt?: boolean
   /** OS that runs the agent when `platform` only picks quoting; null when unreported. */
   agentHostPlatform?: NodeJS.Platform | null
+  managedAgentCommands?: ManagedAgentCommands | null
 }): ResolvedAgentLaunchCommand {
   const override = args.cmdOverrides[args.agent]
   const command =
@@ -110,21 +111,23 @@ export function resolveAgentLaunchCommand(args: {
     getTuiAgentLaunchCommand(TUI_AGENT_CONFIG[args.agent], args.platform, {
       isRemote: args.isRemote
     })
+  // Records keep the stock program: Orca's copy moves with each update, so resumes look it up again.
+  const program = withManagedAgentProgram(command, args)
   const suppressionArgs = args.suppressStartupUpdatePrompt
     ? (STARTUP_UPDATE_PROMPT_SUPPRESSION_ARGS[args.agent] ?? [])
     : []
   const prefixSuppressionArgs = args.agent === 'aider' ? [] : suppressionArgs
   const launchHead = withAgentTerminalInputArgs(
     prefixSuppressionArgs.length
-      ? `${command} ${prefixSuppressionArgs.map((arg) => quoteStartupArg(arg, args.shell)).join(' ')}`
-      : command,
+      ? `${program} ${prefixSuppressionArgs.map((arg) => quoteStartupArg(arg, args.shell)).join(' ')}`
+      : program,
     args.agent,
     args.agentHostPlatform === undefined ? args.platform : args.agentHostPlatform,
     args.shell
   )
-  const trailingTokens = args.agentArgs?.trim()
+  const trailingTokens: ReturnType<typeof tokenizeStartupCommand> = args.agentArgs?.trim()
     ? tokenizeStartupCommand(args.agentArgs.trim(), args.shell)
-    : { ok: true as const, tokens: [], spans: [] }
+    : { ok: true, tokens: [], spans: [] }
   if (!trailingTokens.ok) {
     return { ok: false, error: `CLI arguments are invalid: ${trailingTokens.error}` }
   }
@@ -191,9 +194,14 @@ export function resolveAgentLaunchCommand(args: {
       ? [...antigravityModelArgs(resolvedOptions.args), ...(resolvedOptions.permissionArgs ?? [])]
       : (resolvedOptions.permissionArgs ?? [])
   const resumeArgs = render(insertBeforeTerminator(args.agent, keptTokens, resumeOptionArgs))
+  const launchArgs = render(launchTokens)
   return {
     ok: true,
-    command: withArgs(render(launchTokens), launchHead),
+    command: withArgs(launchArgs, launchHead),
+    // The generated path can contain shell quoting that the custom-command tokenizer misreads.
+    ...(args.agent === 'claude' && program !== command
+      ? { argvPromptCommand: withArgs(launchArgs) }
+      : {}),
     resumeLaunch: {
       agentCommand: withArgs(resumeArgs),
       ...(keptTokens.length !== rawTokens.length ||
@@ -208,20 +216,6 @@ export function resolveAgentLaunchCommand(args: {
       ? { startupEnv: STARTUP_UPDATE_PROMPT_SUPPRESSION_ENV[args.agent] }
       : {})
   }
-}
-
-/** The resolved `--model <id>` (or `--model=<id>`) tokens, without any other launch option. */
-function antigravityModelArgs(tokens: readonly string[]): string[] {
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index]
-    if (token.startsWith('--model=')) {
-      return [token]
-    }
-    if (token === '--model' && index + 1 < tokens.length) {
-      return [token, tokens[index + 1]]
-    }
-  }
-  return []
 }
 
 function insertBeforeTerminator(

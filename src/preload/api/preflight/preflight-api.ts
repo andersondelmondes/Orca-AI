@@ -1,4 +1,8 @@
 import type { ZCodeInteractiveCapability } from '../../../shared/agent-launch/installation/zcode-missing-tui'
+import type {
+  PreparedAgentLaunch,
+  QueuedAgentLaunch
+} from '../../../shared/agent-launch/startup/queued-agent-launch'
 import type { ProjectExecutionRuntimeResolution } from '../../../shared/execution-host/project-execution-runtime'
 import type {
   PathSource,
@@ -27,8 +31,21 @@ export type PreflightStatus = {
   }
 }
 
+export type AgentDetectionArgs = PreflightRuntimeContext & {
+  enabledOnly?: boolean
+  wakeWslDistro?: boolean
+  userInitiated?: boolean
+}
+
+export type AgentInventoryReply = {
+  agents: string[]
+  managedAgentCommands?: Record<string, string>
+}
+
 export type RefreshAgentsResult = {
   agents: string[]
+  /** Full paths to Orca's copies of agents the host has none of its own of. */
+  managedAgentCommands?: Record<string, string>
   addedPathSegments: string[]
   shellHydrationOk: boolean
   /** shell_hydrate uses the full shell PATH; sync_seed_only uses the packaged PATH seed. */
@@ -46,14 +63,13 @@ export type PreflightApi = {
   check: (
     args?: PreflightRuntimeContext & { force?: boolean; wakeWslDistro?: boolean }
   ) => Promise<PreflightStatus>
-  /** Complete by default; background callers opt into host-owned enabled preferences. */
-  detectAgents: (
-    args?: PreflightRuntimeContext & {
-      enabledOnly?: boolean
-      wakeWslDistro?: boolean
-      userInitiated?: boolean
-    }
-  ) => Promise<string[]>
+  /** Complete by default; background callers opt into host-owned enabled preferences.
+   *  `withManagedAgentCommands` adds the full paths to Orca's copies the host would launch. */
+  detectAgents: {
+    (args: { launch: QueuedAgentLaunch }): Promise<PreparedAgentLaunch>
+    (args: AgentDetectionArgs & { withManagedAgentCommands: true }): Promise<AgentInventoryReply>
+    (args?: AgentDetectionArgs): Promise<string[]>
+  }
   /** A WSL distro a background check was refused for is running now; re-ask. Desktop only. */
   onWslDistroRunning?: (callback: (distro: string) => void) => () => void
   /** Cached in main for the process lifetime. */
