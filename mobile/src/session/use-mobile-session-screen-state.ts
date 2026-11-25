@@ -73,6 +73,7 @@ export function useMobileSessionScreenState(scope: MobileSessionFoundationModel)
   const [showQuickCommands, setShowQuickCommands] = useState(false)
   const [showCreateBrowserModal, setShowCreateBrowserModal] = useState(false)
   const [showHeaderMoreActions, setShowHeaderMoreActions] = useState(false)
+  const [showRecentSessionCards, setShowRecentSessionCards] = useState(false)
   const [showTerminalLayout, setShowTerminalLayout] = useState(false)
   const [textSizeSheet, setTextSizeSheet] = useState<MobileSessionTextSizeSheetKind | null>(null)
   const sessionTabActionTargets = useMobileSessionTabActionTargets()
@@ -170,6 +171,8 @@ export function useMobileSessionScreenState(scope: MobileSessionFoundationModel)
     setShowCreateBrowserModal,
     showHeaderMoreActions,
     setShowHeaderMoreActions,
+    showRecentSessionCards,
+    setShowRecentSessionCards,
     showTerminalLayout,
     setShowTerminalLayout,
     textSizeSheet,
