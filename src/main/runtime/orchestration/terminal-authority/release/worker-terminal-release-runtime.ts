@@ -25,6 +25,7 @@ export type WorkerTerminalReleaseRuntime = StructuredSessionSurfaceRuntime &
     | 'readTerminal'
     | 'notifyMessageArrived'
     | 'isWorkerAgentInTurn'
+    | 'sleptAgentHandleForPane'
   > &
   // Lower runtime layers declare neither; without them a release closes its chat.
   Partial<
