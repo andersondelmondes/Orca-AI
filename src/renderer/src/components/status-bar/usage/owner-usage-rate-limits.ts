@@ -51,7 +51,8 @@ const USAGE_PROVIDER_IDS: Record<UsageProviderKey, ProviderRateLimits['provider'
   grok: 'grok',
   cursor: 'cursor',
   zcode: 'zcode',
-  muse: 'muse'
+  muse: 'muse',
+  mistralVibe: 'mistral-vibe'
 }
 
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the keys of a Record<UsageProviderKey, …>.
@@ -154,7 +155,8 @@ const NOT_SET_UP_NEEDS_REASON: ReadonlySet<UsageProviderKey> = new Set([
   'zcode',
   'cursor',
   'antigravity',
-  'muse'
+  'muse',
+  'mistralVibe'
 ])
 
 /** Null may mean an unfinished or skipped fetch; only positive absence can establish missing host setup. */
