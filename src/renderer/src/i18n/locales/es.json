@@ -21030,7 +21030,10 @@
           "bottom": "final",
           "scrollback": "historial",
           "snap": "ajustar",
-          "position": "posición"
+          "position": "posición",
+          "bold": "negrita",
+          "bright": "brillante",
+          "ansi": "ansi"
         }
       },
       "voice": {
@@ -21237,6 +21240,10 @@
         "confirmCheckHomeFolder": "Ninguna otra máquina que comparta esta carpeta personal está ejecutando Orca",
         "details": "Detalles",
         "clearing": "Quitando…"
+      },
+      "TerminalRendering": {
+        "boldBrightTitle": "Texto en negrita con colores brillantes",
+        "boldBrightDescription": "Dibuja el texto en negrita con la variante brillante de los ocho colores ANSI base. Desactívalo para mantener sus colores normales."
       }
     },
     "onboarding": {

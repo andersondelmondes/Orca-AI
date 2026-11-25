@@ -22903,7 +22903,10 @@
           "bottom": "final",
           "scrollback": "histórico",
           "snap": "encaixar",
-          "position": "posição"
+          "position": "posição",
+          "bold": "negrito",
+          "bright": "brilhante",
+          "ansi": "ansi"
         }
       },
       "nativeChat": {
@@ -23160,6 +23163,10 @@
         "confirmCheckHomeFolder": "Nenhuma outra máquina que compartilha esta pasta pessoal está executando o Orca",
         "details": "Detalhes",
         "clearing": "Removendo…"
+      },
+      "TerminalRendering": {
+        "boldBrightTitle": "Texto em negrito com cores brilhantes",
+        "boldBrightDescription": "Desenha o texto em negrito com a variante brilhante das oito cores ANSI básicas. Desative para manter as cores normais."
       }
     },
     "jiraIssueAssigneeField": {

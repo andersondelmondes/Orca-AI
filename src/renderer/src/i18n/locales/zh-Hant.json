@@ -20975,7 +20975,10 @@
           "bottom": "底部",
           "scrollback": "回捲",
           "snap": "貼齊",
-          "position": "位置"
+          "position": "位置",
+          "bold": "粗體",
+          "bright": "亮色",
+          "ansi": "ansi"
         }
       },
       "nativeChat": {
@@ -21221,6 +21224,10 @@
         "confirmCheckHomeFolder": "沒有其他共用此主資料夾的電腦正在執行 Orca",
         "details": "詳細資料",
         "clearing": "正在清除…"
+      },
+      "TerminalRendering": {
+        "boldBrightTitle": "以亮色繪製粗體文字",
+        "boldBrightDescription": "使用八種基本 ANSI 顏色的明亮變體繪製粗體文字。關閉後維持其一般顏色。"
       }
     },
     "agentChildRow": {
