@@ -96,7 +96,7 @@
 1 src/main/bots/bot-memory-history.ts
 1 src/main/bots/bot-package-apply.ts
 1 src/main/bots/bot-structured-session-wiring.ts
-14 src/main/bots/bot-tool-credentials.ts
+15 src/main/bots/bot-tool-credentials.ts # readBotToolSignIn: tells a locked sign-in from none, same file as readBotToolOAuth; was 14
 3 src/main/bots/bot-tool-details.ts # +1 botToolDetailsOf: readBotToolDetails split so the host MCP list masks one id-keyed read
 3 src/main/bots/bot-tool-secret-scrub.ts
 4 src/main/bots/bot-tools-claude.ts # claudeOwnServerNames: the user and per-folder config reads readClaudeInheritedTools and readClaudeMirror already do, once per chat launch that has host servers
