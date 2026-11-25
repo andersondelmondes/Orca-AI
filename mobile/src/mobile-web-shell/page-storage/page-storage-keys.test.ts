@@ -4,6 +4,7 @@ import {
   isPageStorageKeyForRoute,
   pageRouteWorkspace,
   pageStorageEntriesForInit,
+  pageStorageKeysForRoute,
   PAGE_STORAGE_MAX_VALUE_CHARS
 } from './page-storage-keys'
 
@@ -21,6 +22,17 @@ describe('the keys a page may read and write', () => {
     ]) {
       expect(isPageStorageKey(key), key).toBe(false)
     }
+  })
+
+  it('refuses the bare dismissed-subagent prefix and accepts a scoped key', () => {
+    expect(isPageStorageKey('orca:dismissedSubagents:')).toBe(false)
+    expect(isPageStorageKey('orca:dismissedSubagents:host-1:wt-1')).toBe(true)
+  })
+
+  it('includes dismissed subagents on the session route', () => {
+    expect(pageStorageKeysForRoute('host-1', SESSION_ROUTE)).toContain(
+      'orca:dismissedSubagents:host-1:wt-1'
+    )
   })
 
   it('refuses a key that only starts like an allowlisted one', () => {

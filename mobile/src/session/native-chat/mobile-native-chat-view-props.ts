@@ -15,7 +15,7 @@ import type {
   NativeChatLiveTurnIndicator,
   NativeChatSettledTurns
 } from '../../../../src/shared/native-chat/transcript/turns/native-chat-turn-status'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import type { MobileNativeChatSendProps } from './composer/MobileNativeChatComposer'
 import type { MobileNativeChatPromptCard } from './input/prompts/MobileNativeChatPromptCard'
 import type { MobileNativeChatInputLockStatus } from './composer/field/MobileNativeChatInputLockStatus'
@@ -95,4 +95,10 @@ export type MobileNativeChatViewProps = MobileNativeChatSendProps &
     promptKey?: string | null
     onOpenFile?: (relativePath: string) => void
     keyboardInset?: number
+    /** Tail-follow and row keys reset when a child transcript replaces the conversation. */
+    listScopeKey?: string
+    /** A focused child hides the parent's live line, empty copy, and first screen. */
+    hideTranscriptChrome?: boolean
+    /** Roster and back control, drawn above the composer. */
+    activityBar?: ReactNode
   }

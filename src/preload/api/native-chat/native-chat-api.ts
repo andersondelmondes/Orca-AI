@@ -4,6 +4,7 @@ import type {
   NativeChatMessage,
   NativeChatTurnLifecycle
 } from '../../../shared/native-chat/native-chat-types'
+import type { NativeChatSubagentActivity } from '../../../shared/native-chat/input/native-chat-activity'
 
 // notFound marks a not-yet-on-disk miss (retry-worthy) vs a real read/parse error (#8401).
 export type NativeChatReadSessionResult =
@@ -39,6 +40,10 @@ export type NativeChatSubscriptionFrame =
       messages: NativeChatMessage[]
       lifecycle?: NativeChatTurnLifecycle
     }
+  | {
+      type: 'task-list'
+      subagents?: readonly NativeChatSubagentActivity[] | null
+    }
 
 export type NativeChatAppendedPayload = {
   subscriptionId: string
@@ -56,12 +61,16 @@ export type NativeChatSubscribeArgs = {
   limit?: number
   /** The user opened this chat: may start its stopped local WSL distro (E9). */
   wakeWslDistro?: boolean
+  /** Ask for the whole-file task list after the tail snapshot. */
+  capabilities?: { taskList?: 1 }
 }
 
 export type NativeChatReadSessionOptions = {
   wakeWslDistro?: boolean
   /** Provider row cursor: read only rows strictly older than it. */
   beforeOffset?: number
+  /** One child. Absent reads the parent. */
+  subagentId?: string
 }
 
 export type NativeChatApi = {

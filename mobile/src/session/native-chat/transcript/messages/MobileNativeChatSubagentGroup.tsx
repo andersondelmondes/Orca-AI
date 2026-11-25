@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { Bot } from 'lucide-react-native'
 import {
   formatSubagentTokens,
@@ -24,6 +24,7 @@ import { useMobileTranslation } from '../../../../i18n/use-mobile-translation'
 import { colors, spacing, typography } from '../../../../theme/mobile-theme'
 import { themedStyleSheet } from '../../../../theme/themed-styles'
 import { useMobileColorScheme } from '../../../../theme/use-mobile-color-scheme'
+import { useMobileNativeChatOpenSubagent } from '../../input/mobile-native-chat-open-subagent'
 import { MobileNativeChatEventName, MobileNativeChatEventRow } from './MobileNativeChatEventRow'
 import { scaledType } from './mobile-native-chat-message-styles'
 
@@ -73,10 +74,12 @@ function SubagentRow({
   groupId: string
   fontScale: number
 }): React.JSX.Element {
+  const onOpenSubagent = useMobileNativeChatOpenSubagent()
+  const t = useMobileTranslation()
   const state = normalizeSubagentState(agent.state)
   const details = subagentDetails(agent)
   const type = scaledType(typography.bodySize, fontScale)
-  return (
+  const row = (
     <MobileNativeChatEventRow
       testID="subagent-row"
       icon={<Bot size={14} color={colors.textMuted} strokeWidth={2} />}
@@ -104,6 +107,20 @@ function SubagentRow({
     >
       <MobileNativeChatEventName>{agent.label}</MobileNativeChatEventName>
     </MobileNativeChatEventRow>
+  )
+  if (!onOpenSubagent) {
+    return row
+  }
+  return (
+    <Pressable
+      testID="native-chat-open-subagent"
+      accessibilityRole="button"
+      accessibilityLabel={t('chat.activity.openSubagent', 'Open {{name}}', { name: agent.label })}
+      hitSlop={6}
+      onPress={() => onOpenSubagent(agent.id)}
+    >
+      {row}
+    </Pressable>
   )
 }
 

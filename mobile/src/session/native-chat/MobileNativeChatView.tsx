@@ -25,8 +25,9 @@ import { styles } from './mobile-native-chat-view-styles'
 import { MobileNativeChatComposerMenuHost } from './composer/menus/MobileNativeChatComposerMenuHost'
 import { MobileNativeChatEmptyStateView } from './transcript/viewport/MobileNativeChatEmptyStateView'
 import { mobileNativeChatListFooter } from './transcript/viewport/mobile-native-chat-list-footer'
+import { mobileNativeChatLiveStatus } from './transcript/viewport/mobile-native-chat-live-status'
 import { mobileNativeChatListHeader } from './transcript/viewport/mobile-native-chat-list-header'
-import { mobileNativeChatEmptyState } from './transcript/projection/mobile-native-chat-render-data'
+import { paneEmpty } from './transcript/projection/mobile-native-chat-render-data'
 import { useMobileNativeChatTransientData } from './transcript/projection/use-mobile-native-chat-transient-data'
 import { useMobileNativeChatRowKeys } from './transcript/projection/mobile-native-chat-row-keys'
 import { useMobileNativeChatPinchGesture } from './transcript/viewport/mobile-native-chat-pinch-zoom'
@@ -34,8 +35,6 @@ import { useNativeChatTextSettings } from './preferences/native-chat-text-settin
 import { useMobileNativeChatTailFollow } from './transcript/viewport/use-mobile-native-chat-tail-follow'
 import { useMobileNativeChatTurnDisclosure } from './transcript/turn-state/use-mobile-native-chat-turn-disclosure'
 import { mobileNativeChatComposerPlaceholder } from './composer/field/use-mobile-native-chat-input-lease'
-import { MobileNativeChatLiveLine } from './transcript/messages/MobileNativeChatLiveLine'
-import { MobileNativeChatAwaitingInputRow } from './transcript/messages/MobileNativeChatAwaitingInputRow'
 import { MobileNativeChatFloatingControls } from './lower-region/MobileNativeChatFloatingControls'
 import { MobileNativeChatDraftComposer } from './composer/MobileNativeChatDraftComposer'
 import { MobileNativeChatPromptCard } from './input/prompts/MobileNativeChatPromptCard'
@@ -146,7 +145,10 @@ export function MobileNativeChatView({
   onRespondPermission,
   composerTray: { content: trayContent, composerInputRef: inputRef, ...tray } = NO_COMPOSER_TRAY,
   onOpenFile,
-  keyboardInset = 0
+  keyboardInset = 0,
+  listScopeKey = sendSurfaceId,
+  hideTranscriptChrome = false,
+  activityBar = null
 }: Props): React.JSX.Element {
   useMobileColorScheme()
   const t = useMobileTranslation()
@@ -160,7 +162,7 @@ export function MobileNativeChatView({
     { folded, streaming, pending, imagePreviewsByMessageId },
     sendSurfaceId
   )
-  const tail = useMobileNativeChatTailFollow({ hasItems: data.length > 0, scopeKey: sendSurfaceId })
+  const tail = useMobileNativeChatTailFollow({ hasItems: data.length > 0, scopeKey: listScopeKey })
   const { jumpToTail, recordScrollMetrics, scrollMayLoadEarlier } = tail
 
   // Lock only terminal-backed Send: it can answer an agent prompt, while drafting is harmless and structured sends queue.
@@ -225,21 +227,23 @@ export function MobileNativeChatView({
   const turns = useMobileNativeChatTurnDisclosure({
     messages: data,
     enabled: true,
-    isWorking: agentWorking === true,
+    isWorking: hideTranscriptChrome ? false : agentWorking === true,
     workingStartedAt,
     settledTurns,
     turnJournal,
-    thinking: turnIndicator?.thinking === true,
-    activityText: turnIndicator?.activityText ?? null,
-    stopping: turnIndicator?.stopping === true,
-    lineYields: ask != null || permission != null || question != null,
+    thinking: hideTranscriptChrome ? false : turnIndicator?.thinking === true,
+    activityText: hideTranscriptChrome ? null : (turnIndicator?.activityText ?? null),
+    stopping: hideTranscriptChrome ? false : turnIndicator?.stopping === true,
+    lineYields: hideTranscriptChrome
+      ? false
+      : ask != null || permission != null || question != null,
     receipts,
     scopeKey: sendSurfaceId,
     showsTurnDiffs: turnBot === null
   })
 
   const workerReceipts = useMobileWorkerApprovalReceiptPlacement(turns, workerApprovals?.receipts)
-  const rowKeys = useMobileNativeChatRowKeys(folded, messages, sendSurfaceId, turns.presentation)
+  const rowKeys = useMobileNativeChatRowKeys(folded, messages, listScopeKey, turns.presentation)
   const itemJump = useMobileNativeChatItemNavigation({
     navigation: itemNavigation,
     rows: turns.listMessages,
@@ -266,23 +270,20 @@ export function MobileNativeChatView({
     actionablePromptIds
   })
 
-  const liveStatus =
-    awaitingInput === 'unshown' ? (
-      <MobileNativeChatAwaitingInputRow subject={null} pending fontScale={fontScale} />
-    ) : turns.liveLine ? (
-      <MobileNativeChatLiveLine
-        line={turns.liveLine}
-        onToggleReasoning={turns.onToggleReasoning}
-        fontScale={fontScale}
-      />
-    ) : null
+  const liveStatus = mobileNativeChatLiveStatus({
+    hidden: hideTranscriptChrome,
+    awaitingInput,
+    line: turns.liveLine,
+    onToggleReasoning: turns.onToggleReasoning,
+    fontScale
+  })
 
   const header = mobileNativeChatListHeader(hasMore, olderPages, loadEarlier)
   // Changing text size, face or spacing relays out every row, so preserve the page’s reading anchor.
   const layoutKey = `${fontScale}:${font}:${lineSpacing}`
   const mailRows = mobileWaitingAgentMailRows(tray.waitingAgentMail, fontScale, tail.viewport)
   const footer = mobileNativeChatListFooter(liveStatus, turns.waitingRows, renderItem, mailRows)
-  const emptyState = mobileNativeChatEmptyState(status, agent, error, sessionLive, clearing)
+  const emptyState = paneEmpty(hideTranscriptChrome, status, agent, error, sessionLive, clearing)
 
   const composerPlaceholder = mobileNativeChatComposerPlaceholder(
     offlineQueue.lockReason,
@@ -313,6 +314,7 @@ export function MobileNativeChatView({
   // The queue sits above a shown prompt card in a closed box, rather than tucking into the composer.
   const lowerContent = (
     <>
+      {activityBar}
       <MobileNativeChatPromptStrip prompt={collapsedPrompt ?? workerApproval.strip} />
       <MobileNativeChatInputLockStatus
         lockReason={offlineQueue.lockReason}
@@ -370,7 +372,7 @@ export function MobileNativeChatView({
             loading
             title={t('session.nativeChatView.loading', 'Loading conversation…')}
           />
-        ) : firstScreen ? (
+        ) : !hideTranscriptChrome && firstScreen ? (
           <MobileBotFirstScreen firstScreen={firstScreen} after={mailRows} />
         ) : (
           <GestureHandlerRootView style={styles.listWrap}>

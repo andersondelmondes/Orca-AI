@@ -126,8 +126,8 @@ export function MobileSessionActiveContent({
   const hostTitle = useHostDisplay(hostProfile).title
   const nativeChatHostOutage = mobileSessionNativeChatHostOutage(controller, hostTitle, t)
   const nativeChatImageSource = useMemo(
-    () => (client ? { client, worktreeId } : undefined),
-    [client, worktreeId]
+    () => (client ? { client, worktreeId, hostId } : undefined),
+    [client, worktreeId, hostId]
   )
   const openNativeChatAccounts = useOpenHostAccounts(controller.router, hostId)
   const navigateToSender = useCallback(

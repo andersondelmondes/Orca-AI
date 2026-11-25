@@ -41,6 +41,8 @@ const hostImageRead = bindDeferredRpcOperation(
 export type MobileNativeChatImageSource = {
   client: RpcClient
   worktreeId: string
+  /** Paired computer, so a dismissed subagent stays dismissed for this workspace. */
+  hostId?: string
 }
 
 // A phone holds the whole image as a data URI string, so it pages fewer bytes than a desktop does.

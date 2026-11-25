@@ -5,11 +5,15 @@ import {
   type NativeChatMessage
 } from '../../../../../../../shared/native-chat/native-chat-types'
 import {
-  applyAppend,
   boundNativeChatWindow,
   createNativeChatMerger,
   replaceList
 } from '../../../../../../../shared/native-chat/transcript/streaming/native-chat-merge'
+import {
+  applyNativeChatLiveFrame,
+  type NativeChatSubagentSeed
+} from '../../../native-chat-live-frame'
+import { useSubagentPageRead } from '../../../native-chat-subagent-page-read'
 import { mergeNativeChatLiveSession } from '../../../../../../../shared/native-chat/transcript/streaming/native-chat-live-status'
 import {
   hasMoreNativeChatHistory,
@@ -33,11 +37,6 @@ const EMPTY_MESSAGES: readonly NativeChatMessage[] = []
 
 let subscriptionCounter = 0
 
-function nextSubscriptionId(): string {
-  subscriptionCounter += 1
-  return `native-chat-${subscriptionCounter}-${Date.now()}`
-}
-
 // New transcripts may take minutes to flush (#8401); explicit host-pending frames override this guessed retry window.
 export const NOTFOUND_RETRY_WINDOW_MS = 60_000
 
@@ -51,6 +50,8 @@ export function useNativeChatLiveSession(
     [runtimeEnvironmentId]
   )
   const [read, setRead] = useState<ReadState>({ phase: 'loading' })
+  const [subagentSeed, setSubagents] = useState<NativeChatSubagentSeed>(null)
+  const readSubagentPage = useSubagentPageRead(transport, agent, sessionId, transcriptPath)
   const [hasMore, setHasMore] = useState(false)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
   const [olderHistoryGeneration, setOlderHistoryGeneration] = useState(0)
@@ -108,6 +109,7 @@ export function useNativeChatLiveSession(
         replaceList(appendMergerRef.current, [])
         setAppended([])
         setHasMore(false)
+        setSubagents(null)
       }
       return () => undefined
     }
@@ -117,14 +119,13 @@ export function useNativeChatLiveSession(
       replaceList(appendMergerRef.current, [])
       setAppended([])
       setHasMore(false)
+      setSubagents(null)
       return () => undefined
     }
 
     let cancelled = false
-    // Authoritative frames outrank the independent read seed.
-    let frameArrived = false
-    // Host-confirmed missing transcripts are expected until flushed, not errors.
-    let transcriptPending = false
+    // Authoritative frames outrank the independent read seed. The frame helper mutates this.
+    const streamFlags = { frameArrived: false, transcriptPending: false }
     const retryTimer = createNativeChatReadRetryTimer()
     const retryStartedAt = Date.now()
     const activeSessionId = sessionId
@@ -132,22 +133,23 @@ export function useNativeChatLiveSession(
     replaceList(appendMergerRef.current, [])
     setAppended([])
     setHasMore(false)
+    setSubagents(null)
     const wake = { wakeWslDistro: takeNativeChatOpenWake(latestPaneKey.current, sourceKey) }
 
     // Seed independently for silent streams, but never overwrite an authoritative frame.
     function loadSession(attempt: number): void {
-      if (!latestEnabled.current || frameArrived || transcriptPending) {
+      if (!latestEnabled.current || streamFlags.frameArrived || streamFlags.transcriptPending) {
         return
       }
       void transport
         .readSession(agent, activeSessionId, limitRef.current, transcriptPath ?? undefined, wake)
         .then((result) => {
-          if (cancelled || !latestEnabled.current || frameArrived) {
+          if (cancelled || !latestEnabled.current || streamFlags.frameArrived) {
             return
           }
           if (result && 'error' in result) {
             // The live stream owns confirmed missing-file recovery; older hosts need bounded seed retries.
-            if (result.notFound && transcriptPending) {
+            if (result.notFound && streamFlags.transcriptPending) {
               return
             }
             if (result.notFound && Date.now() - retryStartedAt < NOTFOUND_RETRY_WINDOW_MS) {
@@ -163,7 +165,7 @@ export function useNativeChatLiveSession(
           setHasMore(hasMoreNativeChatHistory(messages.length, limitRef.current))
         })
         .catch((err: unknown) => {
-          if (!cancelled && latestEnabled.current && !frameArrived) {
+          if (!cancelled && latestEnabled.current && !streamFlags.frameArrived) {
             setRead({ phase: 'error', error: err instanceof Error ? err.message : String(err) })
           }
         })
@@ -171,7 +173,8 @@ export function useNativeChatLiveSession(
 
     loadSession(0)
 
-    const subscriptionId = nextSubscriptionId()
+    subscriptionCounter += 1
+    const subscriptionId = `native-chat-${subscriptionCounter}-${Date.now()}`
     const closeStream = openNativeChatTranscriptStream(
       transport,
       {
@@ -180,43 +183,29 @@ export function useNativeChatLiveSession(
         sessionId,
         transcriptPath: transcriptPath ?? undefined,
         limit: limitRef.current,
-        wakeWslDistro: wake.wakeWslDistro
+        wakeWslDistro: wake.wakeWslDistro,
+        capabilities: { taskList: 1 }
       },
       (frame) => {
         if (cancelled || !latestEnabled.current) {
           return
         }
-        if (frame.type === 'snapshot' || frame.type === 'replacement') {
-          // Snapshots/inode replacements start authoritative generations that stale pagination must not repaint.
-          transcriptEpochRef.current += 1
-          setOlderHistoryGeneration(transcriptEpochRef.current)
-          setLoadingEarlier(false)
-          if ('error' in frame && frame.error) {
-            // Error frames carry no transcript; leave the independent seed eligible to repair the pane.
-            setRead({ phase: 'error', error: frame.error })
-            return
-          }
-          if (frame.type === 'snapshot' && frame.pending === true) {
-            // Pending ends the spinner without consuming the in-flight seed or appended tail.
-            transcriptPending = true
-            // The host resolve poll owns recovery; stop duplicate renderer filesystem probes.
-            retryTimer.cancel()
-            setRead({ phase: 'awaiting' })
-            return
-          }
-          frameArrived = true
-          setTranscriptSnapshot(transcriptEpochRef.current)
-          transcriptLifecycleControl.replace(frame.lifecycle)
-          const messages = boundNativeChatWindow(frame.messages, limitRef.current)
-          replaceList(appendMergerRef.current, messages)
-          setAppended([])
-          setRead({ phase: 'ready', messages: appendMergerRef.current.list })
-          setHasMore(frame.hasMore || messages !== frame.messages)
-          return
-        }
-        transcriptLifecycleControl.append(frame.lifecycle)
-        // Bound the deduped append tail; the base read/assembler still cover trimmed turns.
-        setAppended(applyAppend(appendMergerRef.current, frame.messages, limitRef.current))
+        applyNativeChatLiveFrame(frame, {
+          setSubagents,
+          epochRef: transcriptEpochRef,
+          setOlderHistoryGeneration,
+          setLoadingEarlier,
+          setRead,
+          setAppended,
+          setHasMore,
+          appendMerger: appendMergerRef.current,
+          limitRef,
+          retryTimer,
+          lifecycle: transcriptLifecycleControl,
+          flags: streamFlags,
+          setTranscriptSnapshot,
+          boundWindow: boundNativeChatWindow
+        })
       }
     )
 
@@ -316,7 +305,9 @@ export function useNativeChatLiveSession(
       transcriptIdentity: `${sourceKey}:${transcriptSnapshot}`,
       loadEarlier,
       trimHistory,
-      readPhase: read.phase
+      readPhase: read.phase,
+      subagentSeed,
+      readSubagentPage
     }
   }, [
     normalizedMessages,
@@ -335,6 +326,8 @@ export function useNativeChatLiveSession(
     transcriptSnapshot,
     loadEarlier,
     trimHistory,
-    appended
+    appended,
+    subagentSeed,
+    readSubagentPage
   ])
 }

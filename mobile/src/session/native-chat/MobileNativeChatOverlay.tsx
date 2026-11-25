@@ -3,7 +3,9 @@ import { MobileQueuedMessageComposerContext } from './input/queued-messages/mobi
 import { MobileMarkdownSlackPeopleContext } from '../../components/markdown/parsing/mobile-markdown-mentions'
 import { Activity, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { MobileNativeChatView, type MobileNativeChatInputLockReason } from './MobileNativeChatView'
+import type { MobileNativeChatInputLockReason } from './MobileNativeChatView'
+import { mobileNativeChatOverlayNotice } from './mobile-native-chat-overlay-notice'
+import { MobileNativeChatSubagentView } from './mobile-native-chat-subagent-view'
 import { useMobileNativeChatProjection } from './transcript/projection/use-mobile-native-chat-projection'
 import { nativeChatDockedTaskList } from '../../../../src/shared/native-chat/input/task-lists/native-chat-task-list-state'
 import type { MobileNativeChatImageAttachments } from './composer/attachments/use-mobile-native-chat-image-attachments'
@@ -22,7 +24,6 @@ import {
 import { MobileNativeChatRowOverlaysHost } from './transcript/message-actions/MobileNativeChatRowOverlaysHost'
 import type { MobileLinkOpenMode } from '../../storage/preferences'
 import { nativeChatAskRequiresTerminal } from '../../../../src/shared/native-chat/native-chat-agent-support'
-import { tuiAgentDisplayName } from '../../../../src/shared/agent-launch/catalog/tui-agent-display-names'
 import { MobileNativeChatNoticeContext } from './transcript/notices/mobile-native-chat-notice-context'
 import type { MobileNativeChatImageSource } from './visual/mobile-native-chat-image-preview'
 import type { MobileNativeChatHostOutage } from './status/mobile-native-chat-host-outage'
@@ -244,27 +245,22 @@ function MobileNativeChatOverlayContent({
   const runInTerminal = useCallback((command: string) => runInTerminalRef.current(command), [])
   const t = useMobileTranslation()
   const continuation = controller.nativeChatInterruptedContinue
+  const dismissalScope =
+    imageSource?.hostId && imageSource.worktreeId
+      ? { hostId: imageSource.hostId, worktreeId: imageSource.worktreeId, sessionId }
+      : null
   const noticeView = useMemo(
-    () => ({
-      hostName,
-      ...(agent ? { agentName: tuiAgentDisplayName(agent) ?? agent } : {}),
-      onRunInTerminal: runInTerminal,
-      usageLimit: controller.nativeChatUsageLimit,
-      unresolvedFailureRows: controller.nativeChatUnresolvedFailureRows,
-      ...(onOpenAccounts ? { openAccounts: onOpenAccounts } : {}),
-      ...(continuation
-        ? {
-            continuation: {
-              ...continuation,
-              // A Continue tap is the person's newer action, so it clears the composer's error.
-              continueNow: () => {
-                onClearSendError()
-                continuation.continueNow()
-              }
-            }
-          }
-        : {})
-    }),
+    () =>
+      mobileNativeChatOverlayNotice({
+        hostName,
+        agent,
+        runInTerminal,
+        usageLimit: controller.nativeChatUsageLimit,
+        unresolvedFailureRows: controller.nativeChatUnresolvedFailureRows,
+        onOpenAccounts,
+        continuation,
+        onClearSendError
+      }),
     [
       hostName,
       agent,
@@ -292,10 +288,13 @@ function MobileNativeChatOverlayContent({
               <MobileNativeChatRootItemSourceContext.Provider value={detailSource}>
                 <MobileNativeChatReplyRevealsContext.Provider value={replyReveals}>
                   <MobileNativeChatNoticeContext.Provider value={noticeView}>
-                    <MobileNativeChatView
+                    <MobileNativeChatSubagentView
                       itemNavigation={session.itemNavigation}
                       messages={session.messages}
                       folded={folded}
+                      subagentSeed={session.subagentSeed}
+                      readSubagentPage={session.readSubagentPage}
+                      dismissalScope={dismissalScope}
                       status={session.status}
                       error={session.error}
                       readFailedFinally={session.readFailedFinally === true}

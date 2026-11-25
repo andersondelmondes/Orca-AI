@@ -8,6 +8,7 @@ export const SubagentEntry = z.object({
   tokens: z.number().optional(),
   startedAt: z.number().optional(),
   settledAt: z.number().optional(),
+  activity: z.string().optional(),
   agentType: z.string().optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
