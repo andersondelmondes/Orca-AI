@@ -2,6 +2,8 @@ import { ActionSheetModal } from '../../components/sheets/ActionSheetModal'
 import { useMobileTranslation } from '../../i18n/use-mobile-translation'
 import { getMobileTerminalActionSheetActions } from '../../terminal/session/tab-actions/mobile-terminal-action-sheet-actions'
 import { isTerminalPhoneDisplayMode } from '../../terminal/session/pane-layout/terminal-phone-display-mode'
+import { hermesTerminalActionFields } from '../mobile-hermes-terminal-chat-switch'
+import { useMobileStructuredChatLaunch } from '../use-mobile-structured-chat-launch'
 import { useMobileAllowAutoCloseActions } from './mobile-worker-auto-close'
 import { mobileSessionTabMenuHeader } from './MobileSessionTabMark'
 import type { MobileSessionController } from '../use-mobile-session-controller'
@@ -13,6 +15,7 @@ export function MobileTerminalTabActionSheet({
   controller: MobileSessionController
 }) {
   const t = useMobileTranslation()
+  const structuredChat = useMobileStructuredChatLaunch(controller)
   const { actionTarget, setActionTarget, sessionTabs } = controller
   const workerActions = useMobileAllowAutoCloseActions(
     controller.client,
@@ -32,7 +35,16 @@ export function MobileTerminalTabActionSheet({
         target: actionTarget,
         tabs: terminalTabs,
         isTabChatView: controller.nativeChatController.isTabChatView,
+        hostCapabilities: controller.hostCapabilities,
         nativeChatTranscriptIsLocalReadable: controller.nativeChatTranscriptIsLocalReadable,
+        structuredAgents: structuredChat?.registeredAgents ?? [],
+        ...hermesTerminalActionFields({
+          controller,
+          sessionTabs,
+          handle: actionTarget?.handle,
+          closeTerminalTab: controller.handleCloseSessionTab,
+          showToast: controller.showToast
+        }),
         onDismiss: () => setActionTarget(null),
         onToggleChat: controller.toggleTabChatView,
         isPhoneMode: (handle) => isTerminalPhoneDisplayMode(handle, controller.terminalModes),

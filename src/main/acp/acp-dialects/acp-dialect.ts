@@ -215,6 +215,8 @@ export type AcpDialect = {
   clientCapabilities?: Pick<ClientCapabilities, 'elicitation' | '_meta'>
   /** Requests that name no session; they belong to the chat's own. */
   sessionlessRequests?: readonly string[]
+  /** session/load answered, but this body means the session is gone. */
+  loadedSessionMissing?(response: AcpLoadedSessionBody): boolean
   /** Claimed permission requests are never auto-approved. */
   request?(method: string, params: unknown): AcpRequestPresentation | undefined
   /** The agent's own notification that a URL request it raised finished, carrying `elicitationId`. */
@@ -279,6 +281,13 @@ export type AcpDialect = {
   thinkingConfigId?: string
   /** This agent's mode values, mapped to Orca's Build/Plan interaction mode. */
   interactionModes?: Readonly<Record<AgentSessionInteractionMode, string>>
+}
+
+export type AcpLoadedSessionBody = {
+  modes?: unknown
+  models?: unknown
+  configOptions?: unknown
+  _meta?: unknown
 }
 
 export type AcpChildStops = { subagents: boolean; backgroundTasks: boolean }

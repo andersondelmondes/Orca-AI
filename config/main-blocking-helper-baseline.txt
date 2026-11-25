@@ -53,7 +53,7 @@
 15 src/main/ai-vault/scanners/hermes/session-scanner-hermes-sqlite.ts
 1 src/main/ai-vault/scanners/omp/omp-session-root.ts
 2 src/main/ai-vault/scanners/opencode/reader-transport/opencode-wsl-runtime-preparation.ts
-15 src/main/ai-vault/scanners/opencode/reader-transport/session-scanner-opencode-sqlite-dispatch.ts
+17 src/main/ai-vault/scanners/opencode/reader-transport/session-scanner-opencode-sqlite-dispatch.ts # why: hermes transcript page and signal use this same off-thread sqlite handler
 1 src/main/ai-vault/scanners/opencode/reader-transport/session-scanner-opencode-sqlite-process-entry.ts
 5 src/main/ai-vault/scanners/opencode/reader-transport/session-scanner-opencode-sqlite-worker-spawn.ts
 2 src/main/ai-vault/scanners/opencode/reader-transport/session-scanner-opencode-wsl-client.ts
@@ -558,6 +558,7 @@
 1 src/main/hang-watchdog/main-thread-hang-watchdog.ts
 6 src/main/hang-watchdog/previous-hang-detection.ts
 4 src/main/hang-watchdog/renderer-hang-records.ts
+1 src/main/hermes/hermes-acp-account.ts # why: one-shot HERMES_HOME path check when pinning the account
 4 src/main/hermes/hermes-acp-launch-spec.ts
 4 src/main/hermes/hermes-default-home.ts
 15 src/main/hermes/hermes-home-filesystem.ts
@@ -802,6 +803,8 @@
 3 src/main/native-chat/transcript-filesystem/process/wsl-transcript-fs-process-dispatch.ts
 1 src/main/native-chat/transcript-filesystem/process/wsl-transcript-fs-process-spawn.ts
 2 src/main/native-chat/transcript-filesystem/wsl-transcript-fs-access.ts
+1 src/main/native-chat/transcript-hermes.ts # why: one-shot Hermes home lookup when a local transcript path is resolved
+6 src/main/native-chat/transcript-hermes-sqlite.ts # why: page and signal reads follow the baselined hermes sqlite reader and run from the opencode sqlite worker
 2 src/main/native-chat/transcript-history/codex/codex-rollout-history-source.ts
 7 src/main/native-chat/transcript-history/hermes/transcript-hermes-sqlite.ts
 3 src/main/native-chat/transcript-history/opencode/transcript-opencode-database.ts

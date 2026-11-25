@@ -12,6 +12,8 @@ export type MobileNewTabAgentSettings = {
 export type MobileNewTabAgentOption = {
   agent: TuiAgent
   label: string
+  /** Structured-chat launch still marks a row that opens in chat. */
+  opensAsChat?: true
   /** The host can't run this agent as a chat. */
   cliOnly?: boolean
   /** Whether a tap asks for a chat; absent leaves it to the host. */

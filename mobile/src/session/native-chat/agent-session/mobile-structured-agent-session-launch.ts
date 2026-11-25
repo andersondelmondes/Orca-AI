@@ -13,7 +13,8 @@ import {
 import {
   structuredAgentSessionCreateParams,
   type StructuredAgentSessionCreateParams,
-  type StructuredAgentSessionForkSource
+  type StructuredAgentSessionForkSource,
+  type StructuredAgentSessionResumeSource
 } from '../../../../../src/shared/agent-session/lifecycle/operations/structured-agent-session-create'
 import type { StructuredAgentCreateSupportReply } from '../../../../../src/shared/agent-session/lifecycle/operations/structured-agent-create-support-reply'
 import { TUI_AGENT_DISPLAY_NAMES } from '../../../../../src/shared/agent-launch/catalog/tui-agent-display-names'
@@ -53,13 +54,15 @@ function createParamsFor(
   agent: TuiAgent,
   worktree: string,
   forkFrom: StructuredAgentSessionForkSource | undefined,
-  tabPlacement: StructuredAgentSessionCreateParams['tabPlacement']
+  tabPlacement: StructuredAgentSessionCreateParams['tabPlacement'],
+  resumeFrom?: StructuredAgentSessionResumeSource
 ): StructuredAgentSessionCreateParams {
   return structuredAgentSessionCreateParams({
     sessionId: createOrcaSessionId(randomV4Uuid),
     worktree,
     agent,
     ...(forkFrom ? { forkFrom } : {}),
+    ...(resumeFrom ? { resumeFrom } : {}),
     ...(tabPlacement ? { tabPlacement } : {}),
     randomUuid: randomV4Uuid
   })
@@ -139,12 +142,20 @@ async function createSupportRefusal(
 export async function createMobileStructuredAgentSession(
   client: RpcClient,
   worktreeId: string,
-  agent: TuiAgent
+  agent: TuiAgent,
+  options?: { resumeFrom?: StructuredAgentSessionResumeSource }
 ): Promise<MobileStructuredAgentLaunchResult> {
   const worktree = `id:${worktreeId}`
   return (
     (await createSupportRefusal(client, worktree, agent)) ??
-    requestStructuredAgentSessionCreate(client, worktree, agent)
+    requestStructuredAgentSessionCreate(
+      client,
+      worktree,
+      agent,
+      undefined,
+      undefined,
+      options?.resumeFrom
+    )
   )
 }
 
@@ -171,9 +182,10 @@ async function requestStructuredAgentSessionCreate(
   worktree: string,
   agent: TuiAgent,
   forkFrom?: StructuredAgentSessionForkSource,
-  tabPlacement?: StructuredAgentSessionCreateParams['tabPlacement']
+  tabPlacement?: StructuredAgentSessionCreateParams['tabPlacement'],
+  resumeFrom?: StructuredAgentSessionResumeSource
 ): Promise<MobileStructuredAgentCreateResult> {
-  const params = createParamsFor(agent, worktree, forkFrom, tabPlacement)
+  const params = createParamsFor(agent, worktree, forkFrom, tabPlacement, resumeFrom)
   rememberMobileCreatedStructuredSession(params.envelope.sessionId, worktree)
   let response
   let priorCreateOutcomeUnknown = false

@@ -1,4 +1,5 @@
 import { withStructuredHistoryInvocation } from '../../../native-chat/agent-session-wire/acquisition/structured-agent-session-history-invocation'
+import { acpHandshakeStartOptions } from '../../protocol/acp-session-setup'
 import { retryAcpRequest } from '../../protocol/acp-request-retry'
 import { observeAcpForkSupport } from '../../capabilities/acp-fork-support'
 import { withAcpStartupDiagnostic } from './acp-startup-diagnostic'
@@ -98,11 +99,7 @@ export async function initializeAcpStructuredSession(
     env: launch.env,
     antigravityChatAuth: launch.antigravityChatAuth
   })
-  const setup = {
-    authMethodId,
-    authMethodUnavailableMessage: spec.authMethodUnavailableMessage,
-    resumePreference: spec.resumePreference
-  }
+  const setup = acpHandshakeStartOptions(spec, authMethodId)
   const resume = launch.resume
   let started: Awaited<ReturnType<AcpStructuredConnection['start']>> | null = null
   let liveLane: AcpStructuredLane | null = null

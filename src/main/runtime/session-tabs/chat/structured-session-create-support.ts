@@ -21,6 +21,7 @@ import {
   resolveHostStructuredAgentLaunchEnvironment
 } from '../../agent-session/launch/structured-agent-launch-support'
 import { structuredAgentRuntimeMetadata } from '../../agent-session/installation/structured-agent-runtime-metadata'
+import { hermesLoadAttach } from '../../../../shared/hermes-session-id'
 import { structuredAgentChatProgramNeedsInstall } from '../../agent-session/launch/structured-agent-availability'
 import { structuredLaunchSeedOptions } from '../../../../shared/native-chat/input/session-options/native-chat-session-option-defaults'
 import { hasPersistedStructuredAgentSessionStore as hasPersistedStructuredAgentSessionStoreOnDisk } from '../../agent-session/records/agent-session-record-store-slot'
@@ -61,17 +62,6 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
       return { supported: false, reason: 'chat-program' }
     }
     return support
-  }
-
-  /** Use this runtime's registered definition to pin account home; reads/create must not install the host just to inspect it. */
-  protected requireRegisteredStructuredAgent(agent: StructuredAgentId) {
-    const definition = structuredAgentRuntimeMetadata(agent)?.definition
-    if (!definition) {
-      throw agentSessionRefusalError('structured_agent_session_unsupported', {
-        reason: 'hostUnsupported'
-      })
-    }
-    return definition
   }
 
   /** Share new-chat selection between create and createSupport so client pickers show what create will run. */
@@ -169,9 +159,10 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
   ): Promise<AgentSessionAttachParams & { hostLaunchDirectory?: string }> {
     const support = await this.getStructuredAgentSessionCreateSupport(input.worktree, input.agent)
     // Adopting a conversation reads the agent's own transcript, so only an agent registered with an
-    // importer adopts.
+    // importer adopts. Hermes reloads an ACP uuid; a TUI timestamp is not that id.
     const transcriptImport = structuredAgentRuntimeMetadata(input.agent)?.transcriptImport
-    if (!resolveAccountHome || !support.supported || (input.resumeFrom && !transcriptImport)) {
+    const hermesLoad = hermesLoadAttach(input.agent, input.resumeFrom, transcriptImport)
+    if (!resolveAccountHome || !support.supported || hermesLoad.unsupported) {
       throw agentSessionRefusalError('structured_agent_session_unsupported', {
         reason: 'hostUnsupported',
         ...(support.installation ? { agentInstallation: support.installation } : {})
@@ -188,7 +179,12 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
       input.agent
     )
     const location = await this.resolveStructuredAgentSessionLocation(input.worktree)
-    const definition = this.requireRegisteredStructuredAgent(input.agent)
+    const definition = structuredAgentRuntimeMetadata(input.agent)?.definition
+    if (!definition) {
+      throw agentSessionRefusalError('structured_agent_session_unsupported', {
+        reason: 'hostUnsupported'
+      })
+    }
     const host = getStructuredAgentSessionHost()
     const committedReplay = resolveCommittedStructuredAgentSessionAdoptionIntent({
       host,
@@ -197,7 +193,7 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
       ...(options ? { options } : {})
     })
     if (committedReplay) {
-      return committedReplay
+      return hermesLoad.apply(committedReplay)
     }
     const resumeFrom = input.resumeFrom
     if (resumeFrom) {
@@ -264,7 +260,7 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
               conversationName: adoption.conversationName
             })
           }
-        : {}),
+        : hermesLoad.fields),
       ...(adoption && adoption.folder !== workspaceCwd
         ? { hostLaunchDirectory: adoption.folder }
         : {}),
