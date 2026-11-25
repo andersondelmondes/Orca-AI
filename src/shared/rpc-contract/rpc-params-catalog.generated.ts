@@ -450,6 +450,12 @@ import {
   TerminalArtifactFileWrite
 } from './filesystem/files-terminal-artifact-params'
 import { BindableAccounts, ValidateAccountBinding } from './github/github-account-binding-params'
+import {
+  ActionsArtifactDownload,
+  ActionsArtifactTransfer,
+  ActionsArtifacts
+} from './github/github-actions-artifact-params'
+import { ActionsRunDetails, ActionsRuns, ActionsWorkflows } from './github/github-actions-params'
 import { UploadGitHubAttachment } from './github/github-attachment-params'
 import { CreateIssue, Issue, IssueComment, UpdateIssue } from './github/github-issue-params'
 import {
@@ -502,6 +508,7 @@ import {
 import {
   IssuesList,
   RateLimit,
+  RepoSlug,
   WorkItem,
   WorkItemByOwnerRepo,
   WorkItemDetails,
@@ -1685,6 +1692,10 @@ export const RPC_PARAMS_BY_METHOD = {
   'git.switchBranch': GitSwitchBranch,
   'git.unstage': GitFilePath,
   'git.upstreamStatus': GitTargetedRemote,
+  'github.actionsArtifacts': ActionsArtifacts,
+  'github.actionsRunDetails': ActionsRunDetails,
+  'github.actionsRuns': ActionsRuns,
+  'github.actionsWorkflows': ActionsWorkflows,
   'github.addIssueComment': IssueComment,
   'github.addPRReviewComment': PRReviewComment,
   'github.addPRReviewCommentReply': PRReviewCommentReply,
@@ -1721,8 +1732,10 @@ export const RPC_PARAMS_BY_METHOD = {
   'github.project.viewTable': ProjectViewTable,
   'github.project.workItemDetailsBySlug': ProjectWorkItemDetailsBySlug,
   'github.rateLimit': RateLimit,
+  'github.readActionsArtifactChunk': ActionsArtifactTransfer,
+  'github.releaseActionsArtifactDownload': ActionsArtifactTransfer,
   'github.removePRReviewers': RemovePrReviewers,
-  'github.repoSlug': RepoSelector,
+  'github.repoSlug': RepoSlug,
   'github.repoUpstream': RepoSelector,
   'github.requestPRReviewers': RequestPrReviewers,
   'github.rerunPRChecks': RerunPullRequestChecks,
@@ -1730,6 +1743,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'github.setPRAutoMerge': SetPrAutoMerge,
   'github.setPRCommentReaction': PRCommentReaction,
   'github.setPRFileViewed': PullRequestFileViewed,
+  'github.startActionsArtifactDownload': ActionsArtifactDownload,
   'github.updateIssue': UpdateIssue,
   'github.updatePR': UpdatePr,
   'github.updatePRState': UpdatePrState,
