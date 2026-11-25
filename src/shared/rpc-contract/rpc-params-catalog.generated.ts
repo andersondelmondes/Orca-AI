@@ -135,6 +135,7 @@ import {
   AutomationCreate,
   AutomationId,
   AutomationList,
+  AutomationPermissionPolicy,
   AutomationRuns,
   AutomationUpdate
 } from './automations/automation-params'
@@ -1240,6 +1241,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'automation.list': AutomationList,
   'automation.runNow': AutomationId,
   'automation.runs': AutomationRuns,
+  'automation.setPermissionPolicy': AutomationPermissionPolicy,
   'automation.show': AutomationId,
   'automation.update': AutomationUpdate,
   'bots.access.decide': BotAccessDecide,
