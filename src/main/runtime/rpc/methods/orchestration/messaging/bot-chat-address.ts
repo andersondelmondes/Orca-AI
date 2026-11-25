@@ -42,21 +42,25 @@ export async function routeBotMail(
   }
 ): Promise<{ to: string; body?: string } | { receipt: unknown }> {
   const chat = await chatForItem(context.runtime, input.to, input.params)
-  const mail = await withItemMailFiles(context.runtime, input)
+  const prepare = () => withItemMailFiles(context.runtime, input)
+  const hasFiles = (input.params.files?.length ?? 0) > 0 || (input.attachments?.length ?? 0) > 0
   const newChat = chat === BOT_NEW_CHAT
-  let to = mail.to
+  let to = input.to
   if (newChat) {
-    assertNewChatAddress(to, mail.params.type)
+    assertNewChatAddress(to, input.params.type)
   } else if (chat) {
     to = await botChatAddress(context.runtime, to, chat)
   }
-  // Checked first so other mail keeps sending without a pause before it is stored.
+  // Checked first so other mail keeps sending without a pause before it is stored. A bot's send
+  // makes its files ready only once it holds its place under the request limits, so a refused one
+  // copies and claims nothing for the receiving chat.
   const toBot =
-    mayReachBot(context.runtime, to, mail.sender) &&
-    (await sendToBot(context, { ...mail, to, newChat }))
+    mayReachBot(context.runtime, to, input.sender) &&
+    (await sendToBot(context, { ...input, to, newChat, ...(hasFiles ? { prepare } : {}) }))
   if (toBot) {
     return { receipt: toBot.receipt }
   }
+  const mail = await prepare()
   // Ordinary mail takes no image blocks: its admitted files all go in its body.
   return mail.images === input.images ? { to } : { to, body: itemMailFilesBody(mail) }
 }
