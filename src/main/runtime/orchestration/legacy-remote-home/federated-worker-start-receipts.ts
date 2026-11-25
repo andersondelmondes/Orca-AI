@@ -6,6 +6,7 @@ export function isKnownRemoteStartFailure(code: string): boolean {
     // Refused before the remote attached anything: the worker start failed.
     'selector_not_found',
     'agent_unconfigured',
+    'agent_not_available',
     'worktree_not_found_on_server',
     'terminal_worktree_mismatch',
     'terminal_busy',
