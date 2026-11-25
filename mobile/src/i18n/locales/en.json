@@ -3479,6 +3479,7 @@
       "model": "Model",
       "effort": "Effort",
       "fastMode": "Fast mode",
+      "contextWindow": "Context window",
       "speed": "Speed",
       "thinking": "Thinking",
       "standard": "Standard",
