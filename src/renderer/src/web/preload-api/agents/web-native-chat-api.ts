@@ -7,6 +7,7 @@ import {
   parseRuntimeNativeChatReadSessionResult,
   parseRuntimeNativeChatTurnLifecycle
 } from '@/components/native-chat/session/terminal/read/native-chat-runtime-contract'
+import { readNativeChatSubagentActivities } from '../../../../../shared/native-chat/input/native-chat-tool-subagents'
 import { translate } from '@/i18n/i18n'
 import { callRuntimeResult } from '../../runtime/client/web-runtime-calls'
 import {
@@ -26,7 +27,8 @@ export function createWebNativeChatApi(): NativeChatApi {
           limit,
           transcriptPath,
           beforeOffset: options?.beforeOffset,
-          capabilities: { transcriptSourceOrder: 1 }
+          capabilities: { transcriptSourceOrder: 1 },
+          ...(options?.subagentId ? { subagentId: options.subagentId } : {})
         })
       ),
     subscribe: (args, onFrame) => {
@@ -56,7 +58,7 @@ export function createWebNativeChatApi(): NativeChatApi {
             subscriptionId: args.subscriptionId,
             transcriptPath: args.transcriptPath,
             limit: args.limit,
-            capabilities: { transcriptPending: 1, transcriptSourceOrder: 1 }
+            capabilities: { transcriptPending: 1, transcriptSourceOrder: 1, taskList: 1 }
           },
           {
             onResponse: (response) => {
@@ -75,6 +77,7 @@ export function createWebNativeChatApi(): NativeChatApi {
                 }
                 return
               }
+              // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: host frames are shape-checked field by field below.
               const result = response.result as {
                 type?: string
                 messages?: NativeChatAppendedMessages
@@ -82,6 +85,14 @@ export function createWebNativeChatApi(): NativeChatApi {
                 error?: string
                 lifecycle?: unknown
                 pending?: boolean
+                subagents?: unknown
+              }
+              if (result?.type === 'task-list') {
+                onFrame({
+                  type: 'task-list',
+                  subagents: readNativeChatSubagentActivities(result.subagents)
+                })
+                return
               }
               const lifecycle = parseRuntimeNativeChatTurnLifecycle(result?.lifecycle)
               // No transcript behind this window yet — forwarded so the view can stop spinning, but it is not the settled initial read.

@@ -30,7 +30,8 @@ export const nativeChatApi = {
       limit,
       transcriptPath,
       wakeWslDistro: options?.wakeWslDistro,
-      beforeOffset: options?.beforeOffset
+      beforeOffset: options?.beforeOffset,
+      subagentId: options?.subagentId
     }),
   subscribe: (
     args: {
@@ -40,6 +41,7 @@ export const nativeChatApi = {
       transcriptPath?: string
       limit?: number
       wakeWslDistro?: boolean
+      capabilities?: { taskList?: 1 }
     },
     onFrame: (frame: NativeChatSubscriptionFrame) => void
   ): (() => void) => {

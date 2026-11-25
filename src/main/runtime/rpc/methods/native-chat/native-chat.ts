@@ -13,6 +13,8 @@ import type {
 } from '../../../../native-chat/transcript-watching/transcript-watch-contract'
 import { nativeChatTranscriptPathOnExecutionHost } from '../../../../native-chat/transcript-filesystem/ssh-transcript-path'
 import { defineMethod, defineStreamingMethod, type RpcContext } from '../../core'
+import { publishTranscriptSubagents } from '../../../../native-chat/native-chat-transcript-subagent-scan'
+import { windowNativeChatWithChildren } from '../../../../native-chat/transcript-subagent-children'
 import { sanitizeNativeChatRpcBlock } from './native-chat-rpc-block-sanitize'
 import {
   boundNativeChatRpcPageByBytes,
@@ -51,7 +53,7 @@ function windowTranscript(
   limit = MOBILE_NATIVE_CHAT_DEFAULT_WINDOW
 ): NativeChatMessage[] {
   const window = Math.min(Math.max(limit, 1), MOBILE_NATIVE_CHAT_MAX_WINDOW)
-  return messages.length > window ? messages.slice(-window) : messages.slice()
+  return windowNativeChatWithChildren(messages, window)
 }
 
 function pageForClient(
@@ -107,7 +109,8 @@ export const NATIVE_CHAT_METHODS = [
           ),
           limit,
           beforeOffset: params.beforeOffset,
-          sourceOrder: params.capabilities?.transcriptSourceOrder === 1
+          sourceOrder: params.capabilities?.transcriptSourceOrder === 1,
+          ...(params.subagentId ? { subagentId: params.subagentId } : {})
         },
         signal
       )
@@ -182,6 +185,10 @@ export const NATIVE_CHAT_METHODS = [
           if (closed) {
             return
           }
+          // The scan resolves after this synchronous emit, so the roster frame follows the snapshot.
+          if (!error) {
+            publishSubagents()
+          }
           const resumeAt = resumeIndex(messages, params.resumeAfter, params.agent)
           const resumed = resumeAt !== -1
           // Emit initial-read errors so a watching view cannot remain loading forever.
@@ -213,6 +220,7 @@ export const NATIVE_CHAT_METHODS = [
           if (closed) {
             return
           }
+          publishSubagents()
           emit({
             type: 'replacement',
             ...pageForClient(messages, hasMore, beforeOffset, clientKind, limit, params.agent),
@@ -236,6 +244,19 @@ export const NATIVE_CHAT_METHODS = [
             })
           }
         }
+      }
+      const publishSubagents = (): void => {
+        if (params.capabilities?.taskList !== 1) {
+          return
+        }
+        publishTranscriptSubagents({
+          agent: params.agent,
+          sessionId: params.sessionId,
+          filePath: subscribeArgs.transcriptPath,
+          fenceKey: subscriptionId,
+          stillCurrent: () => !closed,
+          emit: (subagents) => emit({ type: 'task-list', subagents })
+        })
       }
       let subscription: NativeChatTranscriptSubscription
       try {
