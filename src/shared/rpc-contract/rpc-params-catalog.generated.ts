@@ -232,6 +232,7 @@ import {
   BotUpdate,
   WorktreeReleaseBotHome
 } from './bots-params'
+import { BotRunChats } from './bots-run-chats-params'
 import {
   BotSharePartView,
   BotSharePrepare,
@@ -1356,6 +1357,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'bots.memory.undo': BotMemoryUndo,
   'bots.request.outcome': BotRequestOutcomeParams,
   'bots.roster': BotRoster,
+  'bots.runChats': BotRunChats,
   'bots.sendRunAgain': BotRunSendAgainParams,
   'bots.session.start': BotSessionStart,
   'bots.share.prepare': BotSharePrepare,
