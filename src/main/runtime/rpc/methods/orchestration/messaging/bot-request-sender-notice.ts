@@ -1,11 +1,14 @@
-/** Telling a bot request's sender how it ended: the outcome and its notice commit together, by the
- *  route the request came on, and only to a sender Orca can verify. */
+/** Telling a bot request's sender how it stands (ended, or taken and queued): the record and its
+ *  notice commit together, by the route the request came on, and only to a sender Orca can verify. */
 
 import type { MessageRow } from '../../../../orchestration/db/orchestration-records'
 import type { OrchestrationDb } from '../../../../orchestration/db/orchestration-db'
 import type { BotRequestOutcome } from '../../../../orchestration/db/bot-requests/bot-request-outcomes'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
-import { botRequestUnansweredText } from '../../../../../bots/bot-request-view'
+import {
+  botRequestPendingText,
+  botRequestUnansweredText
+} from '../../../../../bots/bot-request-view'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { awaitsAnswer } from '../../../../../bots/bot-request-policy'
 import { botRequestRecord } from './bot-request-record'
@@ -40,15 +43,22 @@ export async function ensureSenderRecords(
   }
 }
 
+/** How a request stands for its sender: ended with this outcome, or taken and queued, in the bot's words. */
+export type SenderNotice =
+  | {
+      outcome: BotRequestOutcome
+      why: Parameters<typeof botRequestUnansweredText>[1]
+      reason?: string
+    }
+  | { pending: string }
+
 /** False leaves the request as it was: its sender cannot be verified yet, so a later end retries.
  *  `settled` runs in the same write as the outcome whenever the request is settled here. */
 export function tellSender(
   runtime: OrcaRuntimeService,
   db: OrchestrationDb,
   request: MessageRow,
-  outcome: BotRequestOutcome,
-  why: Parameters<typeof botRequestUnansweredText>[1],
-  reason?: string,
+  notice: SenderNotice,
   settled: () => void = () => {}
 ): boolean {
   const record = botRequestRecord(db, request.id)
@@ -56,8 +66,16 @@ export function tellSender(
     settled()
     return true
   }
-  const body = botRequestUnansweredText(record, why, reason)
-  if (tellPeerSender(runtime, db, request, outcome, body, settled)) {
+  const body =
+    'pending' in notice
+      ? botRequestPendingText(record, notice.pending)
+      : botRequestUnansweredText(record, notice.why, notice.reason)
+  // True the first time only: Orca tells the sender each outcome, and that it's queued, once.
+  const firstTime = () =>
+    'pending' in notice
+      ? db.recordBotRequestPendingNotice(request.id)
+      : db.recordBotRequestOutcome(request.id, notice.outcome)
+  if (tellPeerSender(runtime, db, request, firstTime, body, settled)) {
     return true
   }
   const sender = reachableSender(runtime, db, request)
@@ -67,7 +85,7 @@ export function tellSender(
   // The outcome and its notice commit together, so a crash can't record one without the other.
   const told = runLifecycleWriteTransaction(db.db, 'bot_request_notice', () => {
     settled()
-    if (!db.recordBotRequestOutcome(request.id, outcome) || sender === 'gone') {
+    if (!firstTime() || sender === 'gone') {
       return null
     }
     return db.insertMessage({
@@ -91,7 +109,7 @@ function tellPeerSender(
   runtime: OrcaRuntimeService,
   db: OrchestrationDb,
   request: MessageRow,
-  outcome: BotRequestOutcome,
+  firstTime: () => boolean,
   body: string,
   settled: () => void
 ): boolean {
@@ -105,7 +123,7 @@ function tellPeerSender(
   // The outcome and its queued notice commit together.
   const queued = runLifecycleWriteTransaction(db.db, 'bot_request_peer_notice', () => {
     settled()
-    if (!db.recordBotRequestOutcome(request.id, outcome)) {
+    if (!firstTime()) {
       return false
     }
     queuePeerMailReply(db, conversation.conversation_id, generateId('msg'), {

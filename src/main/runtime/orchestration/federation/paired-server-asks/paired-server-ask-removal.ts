@@ -50,7 +50,7 @@ function tellUnansweredAskers(runtime: OrcaRuntimeService, environmentId: string
   for (const row of unanswered) {
     const message = db.getMessageById(String(row.message_id))
     if (message) {
-      tellSender(runtime, db, message, 'dropped', 'unpaired', undefined, () =>
+      tellSender(runtime, db, message, { outcome: 'dropped', why: 'unpaired' }, () =>
         db.markAsRead([message.id], { kind: 'dropped', why: 'unpaired' })
       )
     }

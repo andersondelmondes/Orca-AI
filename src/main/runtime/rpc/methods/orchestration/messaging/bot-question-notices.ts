@@ -10,6 +10,7 @@ import {
   type BotRequestNoticeWhy
 } from '../../../../../bots/bot-request-view'
 import { ensureSenderRecords, tellSender } from './bot-request-sender-notice'
+import { readBotTurnInterimStatus } from './bot-turn-interim-status'
 
 type FailureWords = {
   requestId: string
@@ -36,10 +37,15 @@ function isDropReason(why: string): why is (typeof BOT_REQUEST_DROP_REASONS)[num
   return BOT_REQUEST_DROP_REASONS.some((reason) => reason === why)
 }
 
-async function noticeWords(
-  taker: string,
-  readChat?: ChatStateReader
-): Promise<{ why: BotRequestNoticeWhy; reason?: string }> {
+type NoticeWords = {
+  why: BotRequestNoticeWhy
+  reason?: string
+  /** The taker's chat and the turn it last ended without failing, whose closing words may say it
+   *  queued the question. */
+  ended?: { sessionId: string; turnId: string }
+}
+
+async function noticeWords(taker: string, readChat?: ChatStateReader): Promise<NoticeWords> {
   if (taker.startsWith('dropped:')) {
     const why = taker.slice('dropped:'.length)
     return { why: isDropReason(why) ? why : 'withdrawn' }
@@ -54,7 +60,9 @@ async function noticeWords(
     .catch(() => null)
   const request = state?.latestRequest
   if (request?.outcome !== 'failure') {
-    return { why: 'ended' }
+    return request?.kind === 'turn' && request.turnState !== 'running'
+      ? { why: 'ended', ended: { sessionId: live, turnId: request.id } }
+      : { why: 'ended' }
   }
   // The failure report reads its words after the turn ends; until then the notice says it failed.
   const failure = failures.get(live)
@@ -72,11 +80,21 @@ export async function botQuestionNotices(
     runtime,
     messageIds.map((id) => db.getMessageById(id))
   )
-  const { why, reason } = await noticeWords(taker, readChat)
+  const { why, reason, ended } = await noticeWords(taker, readChat)
+  // A turn that closed on "accepted, queued" took it: the asker hears that once, and the answer or
+  // the next stop without one still counts. The status names no question, so it stands only for a
+  // taker holding exactly one.
+  const pending =
+    ended && messageIds.length === 1
+      ? await readBotTurnInterimStatus(runtime, ended.sessionId, ended.turnId).catch(() => null)
+      : null
   const outcome = taker.startsWith('dropped:') ? 'dropped' : 'unanswered'
   return ({ messageId }) => {
     const message = db.getMessageById(messageId)
-    return !message || tellSender(runtime, db, message, outcome, why, reason)
+    if (message && pending) {
+      return tellSender(runtime, db, message, { pending }) ? 'pending' : 'unverified'
+    }
+    return !message || tellSender(runtime, db, message, { outcome, why, reason })
       ? 'told'
       : 'unverified'
   }

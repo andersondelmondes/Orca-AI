@@ -260,6 +260,26 @@ function turn(turnId: string, openerId: string, state: 'running' | 'success' | '
   )
 }
 
+/** What the bot said last in the provider's turn `turnId`, in that turn's scope. */
+function said(turnId: string, text: string): void {
+  transaction(() =>
+    applyJournalDomainItem(
+      journalDb,
+      target,
+      {
+        kind: 'item',
+        identity: turnOf(`${turnId}-said`),
+        body: { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text }] },
+        options: {
+          turnScope: { kind: 'turn', turnItemId: agentJournalItemKey(turnOf(turnId)) },
+          fence: 1
+        }
+      },
+      now++
+    )
+  )
+}
+
 /** The notices the asker got, by what they said. */
 const notices = (): string[] =>
   db.db
@@ -422,4 +442,42 @@ it('a turn woken by a worker report settles the acting turn before it, never one
 
   await settleBotRequestTurn(runtime(), 'chat', 'turn-r', { outcome: 'success' })
   expect([r1, r2].map((id) => db.getBotRequestOutcome(id))).toEqual(['unanswered', null])
+})
+
+it('tells the asker once that a handoff the bot queued is pending, then that a later bare turn left it unanswered', async () => {
+  const r1 = request('review')
+  send('m1', r1, null, { turn: TURN_A, via: 'start' })
+  turn('turn-a', 'm1', 'running')
+  said('turn-a', 'Accepted as item 77; queued FIFO behind two reviews. Verdict follows.')
+  turn('turn-a', 'm1', 'success')
+
+  await settleBotRequestTurn(runtime(), 'chat', 'turn-a', { outcome: 'success' })
+  await settleBotRequestTurn(runtime(), 'chat', 'turn-a', { outcome: 'success' })
+  expect(notices()).toEqual([
+    expect.stringContaining('Accepted as item 77; queued FIFO behind two reviews.')
+  ])
+  expect(db.getBotRequestOutcome(r1)).toBeNull()
+
+  // Woken by its own queue, a later turn ends on nothing: the existing notice still goes out.
+  send('wake', 'worker-report', null, { turn: TURN_R, via: 'start' })
+  turn('turn-r', 'wake', 'success')
+  await settleBotRequestTurn(runtime(), 'chat', 'turn-r', { outcome: 'success' })
+  expect(notices()).toEqual([
+    expect.stringContaining('queued FIFO behind two reviews'),
+    expect.stringContaining('Helper read your handoff and ended its turn without a reply')
+  ])
+  expect(db.getBotRequestOutcome(r1)).toBe('unanswered')
+})
+
+it('a queued status stands for no request when the turn left two open', async () => {
+  const r1 = request('first')
+  const r2 = request('folded')
+  send('m1', r1, null, { turn: TURN_A, via: 'start' })
+  turn('turn-a', 'm1', 'running')
+  send('m2', r2, TURN_A, { turn: TURN_A, via: 'steer' })
+  said('turn-a', 'Review A is queued behind item 76; no verdict yet.')
+  turn('turn-a', 'm1', 'success')
+
+  await settleBotRequestTurn(runtime(), 'chat', 'turn-a', { outcome: 'success' })
+  expect([r1, r2].map((id) => db.getBotRequestOutcome(id))).toEqual(['unanswered', 'unanswered'])
 })

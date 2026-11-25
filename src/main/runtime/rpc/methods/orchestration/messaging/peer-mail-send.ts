@@ -19,6 +19,7 @@ import { sendClientAsk } from './client-ask-send'
 import type { SendParams } from './send-params'
 import type { SendRecipientWarning } from './recipient-routing'
 import { uploadPeerMailFiles } from './peer-mail-files'
+import { localPathWarning } from './peer-mail-local-paths'
 import { PeerMailMessageType } from '../../../../../../shared/rpc-contract/orchestration/orchestration-peer-mail-params'
 import {
   forgetPeerQuestionOut,
@@ -74,17 +75,23 @@ export async function sendPeerMail(args: {
   const id = peerMailMessageId(args.orchestrationMutation)
   // An Orca from before files keeps the words and drops the files, so they go only where they're taken.
   const files = server.takesFiles ? params.files : undefined
-  const attachments = await uploadPeerMailFiles(runtime, server, { ...params, files })
-  const warnings: SendRecipientWarning[] =
-    params.files?.length && !server.takesFiles
+  const attachments = await uploadPeerMailFiles(runtime, server, {
+    ...params,
+    files
+  })
+  const localPaths = await localPathWarning(params.body, to, server.name)
+  const warnings: SendRecipientWarning[] = [
+    ...(params.files?.length && !server.takesFiles
       ? [
           {
-            code: 'files_not_sent',
+            code: 'files_not_sent' as const,
             recipient: to,
             message: `${server.name}'s Orca needs an update to receive files, so the message went without them.`
           }
         ]
-      : []
+      : []),
+    ...(localPaths ? [localPaths] : [])
+  ]
   const db = runtime.getOrchestrationDb()
   if (type === 'question') {
     // Kept until its answer or notice comes back, so an unpair can tell the asker none will;
@@ -122,7 +129,11 @@ export async function sendPeerMail(args: {
   }
   return recordReceiptBeforeNudge(
     args.recordMutationReceipt,
-    { message: { id, to }, server: server.name, ...(warnings.length > 0 ? { warnings } : {}) },
+    {
+      message: { id, to },
+      server: server.name,
+      ...(warnings.length > 0 ? { warnings } : {})
+    },
     () => runtime.ensureOrchestrationPeerMailRelay(server.environmentId),
     { kind: 'federation', environmentId: server.environmentId }
   )

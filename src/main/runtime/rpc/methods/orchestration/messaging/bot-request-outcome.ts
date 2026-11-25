@@ -23,6 +23,7 @@ import {
   stampQuestionTakes,
   type MailTaker
 } from '../../../../orchestration/db/messages/mail-taker'
+import { readBotTurnInterimStatus } from './bot-turn-interim-status'
 import { getStructuredAgentSessionHost } from '../../../../../native-chat/agent-session-wire/host/structured-agent-session-registry'
 import type { TurnEndedVerdict } from '../../../../../native-chat/agent-session-wire/structured-agent-session-turn-context'
 import type { StructuredAgentSessionRequestFailure } from '../../../../../native-chat/agent-session-wire/observations/structured-agent-session-request-failures'
@@ -71,7 +72,10 @@ export function botAnswerOf(
     )
   }
   return {
-    botAnswer: { requestId: original.id, view: botAnswerView(record, answer.posted, shownInRoom) }
+    botAnswer: {
+      requestId: original.id,
+      view: botAnswerView(record, answer.posted, shownInRoom)
+    }
   }
 }
 
@@ -159,7 +163,11 @@ export async function settleBotRequestFailure(
   const text = await failureNamingHostCap(runtime.getOrchestrationDb(), failure, error)
   // The reason is mailed to other agents and paired computers, so redact it as worker escalations do.
   const reason = text ? redactFailure(text) : undefined
-  noteBotQuestionFailure(failure.sessionId, { requestId: failure.id, why, reason })
+  noteBotQuestionFailure(failure.sessionId, {
+    requestId: failure.id,
+    why,
+    reason
+  })
   // A refused send settles only itself: other agents' mail refused says nothing of earlier requests.
   await settleBotRequests(runtime, failure.sessionId, failure.id, {
     why,
@@ -176,7 +184,11 @@ async function settleBotRequests(
     why,
     reason,
     refusedSend = false
-  }: { why: 'ended' | 'failed' | 'failed-continues'; reason?: string; refusedSend?: boolean }
+  }: {
+    why: 'ended' | 'failed' | 'failed-continues'
+    reason?: string
+    refusedSend?: boolean
+  }
 ): Promise<void> {
   // Every chat's turn ends here; only a bot's can be on a request.
   if (!botOfSession(runtime.bots, sessionId)) {
@@ -201,10 +213,25 @@ async function settleBotRequests(
     .listDispatchIdsCreatedBySession(sessionId, 50)
     .some((id) => ACTIVE_DISPATCH.has(db.getDispatchContextById(id)?.status ?? ''))
   const messages = working ? [] : open.map((id) => db.getMessageById(id))
+  if (messages.length === 0) {
+    return
+  }
+  // A turn that closed on "accepted, queued" took it: the sender hears that once, and the answer
+  // or a later turn's failure still counts. Read only here, on a turn that left a request open.
+  // The status names no request, so it stands only for a turn that left exactly one open.
+  const pending =
+    why === 'ended' && messages.length === 1
+      ? await readBotTurnInterimStatus(runtime, sessionId, turnId).catch(() => null)
+      : null
   await ensureSenderRecords(runtime, messages)
   for (const message of messages) {
     if (message) {
-      tellSender(runtime, db, message, 'unanswered', why, reason)
+      tellSender(
+        runtime,
+        db,
+        message,
+        pending ? { pending } : { outcome: 'unanswered', why, reason }
+      )
     }
   }
 }
@@ -250,7 +277,7 @@ export async function dropUnreadBotRequests(
     await ensureSenderRecords(runtime, dropped)
     for (const message of dropped) {
       // Read in the same write as its outcome and notice, so the drop is never half done.
-      tellSender(runtime, db, message, 'dropped', why, undefined, () =>
+      tellSender(runtime, db, message, { outcome: 'dropped', why }, () =>
         db.markAsRead([message.id], { kind: 'dropped', why })
       )
     }

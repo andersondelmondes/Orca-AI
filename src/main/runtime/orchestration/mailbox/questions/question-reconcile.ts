@@ -32,8 +32,12 @@ const QUESTION_KINDS: readonly QuestionKind[] = ['worker-ask', 'remote-ask', 'bo
 
 /** Writes the notice and the question's outcome, inside the decision's transaction. 'unverified'
  *  leaves the question awaiting: its asker can't be resolved yet, so a later edge tries again.
- *  'sending': the notice goes to a paired computer, which records the outcome once it lands. */
-export type QuestionNoticeWriter = (notice: QuestionNotice) => 'told' | 'unverified' | 'sending'
+ *  'sending': the notice goes to a paired computer, which records the outcome once it lands.
+ *  'pending': the taker said it queued the question; its asker heard that (once), and the question
+ *  still awaits its answer or the next stop without one. */
+export type QuestionNoticeWriter = (
+  notice: QuestionNotice
+) => 'told' | 'unverified' | 'sending' | 'pending'
 
 // Takers that never run again: a caller with no agent behind it, or a drop.
 const NEVER_RUNS = /^(shell|reply|orca|dropped:.*)$/
