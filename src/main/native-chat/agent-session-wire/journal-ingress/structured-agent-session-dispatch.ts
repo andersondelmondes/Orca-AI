@@ -19,9 +19,10 @@ export type StructuredAgentSessionPublishOptions = Pick<
   coalescingKey?: string
 }
 
+/** `fence` is the acquisition fence this sink was bound to when the publication ran. */
 export type ChildWorkPublication = (
   evidence: readonly AgentChildWorkEvidence[],
-  publish: (journal: SqlAgentSessionJournal) => void
+  publish: (journal: SqlAgentSessionJournal, fence: number) => void
 ) => StructuredAgentSessionSinkAdmission
 
 export function createLiveTextPublication(
@@ -55,7 +56,7 @@ export function createChildWorkPublication(
       run: (bound) =>
         bound.journal.readInOrder(() => {
           if (current(bound)) {
-            publish(bound.journal)
+            publish(bound.journal, bound.fence)
           }
         })
     })

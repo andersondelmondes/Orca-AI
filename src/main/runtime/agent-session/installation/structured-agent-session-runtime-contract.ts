@@ -102,6 +102,7 @@ export type StructuredAgentSessionRuntimeDeps = StructuredAgentSessionTransportO
    *  workspace rename that CLI agents get from their hooks. */
   onSessionStatusChanged?: StructuredAgentSessionHostDeps['onSessionStatusChanged']
   readWorkerDockPresence?: StructuredAgentSessionHostDeps['readWorkerDockPresence']
+  sessionMembershipCurrent?: StructuredAgentSessionHostDeps['sessionMembershipCurrent']
   conversationNaming?: StructuredAgentSessionHostDeps['conversationNaming']
   /** See `StructuredAgentSessionHostDeps.turnContext`. */
   turnContext?: StructuredAgentSessionHostDeps['turnContext']

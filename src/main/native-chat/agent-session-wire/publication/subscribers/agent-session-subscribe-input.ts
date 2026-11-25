@@ -31,6 +31,8 @@ export type AgentSessionSubscribeInput = {
   snapshotCatchUp?: boolean
   /** The reader shows prompt suggestions on screen; only these receive them or keep them generated. */
   showsPromptSuggestions?: boolean
+  /** This reader's audience projection of the roster, before fitting and comparison. */
+  projectBackgroundTasks?: SubscriberFieldState['projectBackgroundTasks']
 }
 
 export type AgentSessionSubscriberEmit = (event: AgentSessionSubscribeEvent) => void
