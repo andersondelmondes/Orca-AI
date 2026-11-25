@@ -21,6 +21,8 @@ import {
   workspaceRunsOnServer
 } from './server-port-forward-support'
 
+type SystemOpener = (url: string) => Promise<unknown>
+
 /** How a port's URL opens in the system browser; null when only Orca's browser on its host reaches it.
  *  `worktreeId` names the workspace a workspace port belongs to; the server's own listeners have none. */
 export function portSystemBrowserOpener(
@@ -35,7 +37,9 @@ export function portSystemBrowserOpener(
   return serverForwardsPorts(target.environmentId) &&
     isLoopbackBrowserUrl(url) &&
     (worktreeId === null || workspaceRunsOnServer(target.environmentId, worktreeId))
-    ? () => openServerLoopbackInSystemBrowser(url, target.environmentId, worktreeId)
+    ? async () => {
+        await openServerLoopbackInSystemBrowser(url, target.environmentId, worktreeId)
+      }
     : null
 }
 
@@ -48,11 +52,13 @@ export async function openServerLoopbackInSystemBrowser(
   rawUrl: string,
   environmentId: string,
   /** The workspace the link or page belongs to; null for the server's own listeners. */
-  worktreeId: string | null | undefined
-): Promise<void> {
+  worktreeId: string | null | undefined,
+  /** Opens the forwarded address; resolving `false` means it did not open (superseded or refused). */
+  openSystem: SystemOpener = openSystemHttpLink
+): Promise<boolean> {
   const port = remoteUrlPort(rawUrl)
   if (port === null) {
-    return
+    return false
   }
   const state = useAppStore.getState()
   const host = selectExecutionHostDisplayLabel(state, toRuntimeExecutionHostId(environmentId))
@@ -65,20 +71,19 @@ export async function openServerLoopbackInSystemBrowser(
         { port, host }
       )
     )
-    return
+    return false
   }
   const sshTargetId = serverSshForwardTargetId(environmentId)
   if (sshTargetId) {
-    await openSshTargetLoopback(rawUrl, port, sshTargetId, host)
-    return
+    return openSshTargetLoopback(rawUrl, port, sshTargetId, host, openSystem)
   }
   const known = forwardedUrlForRemoteUrl(
     rawUrl,
     state.portForwardsByConnection[environmentId] ?? []
   )
   if (known) {
-    await openSystemHttpLink(known)
-    return
+    await openSystem(known)
+    return true
   }
   const api = window.api.runtimeEnvironments.portForwards
   const supported =
@@ -95,10 +100,14 @@ export async function openServerLoopbackInSystemBrowser(
         { port, host }
       )
     )
-    return
+    return false
   }
-  await openThroughNewForward(rawUrl, port, host, () =>
-    api.ensure({ environmentId, remotePort: port })
+  return openThroughNewForward(
+    rawUrl,
+    port,
+    host,
+    () => api.ensure({ environmentId, remotePort: port }),
+    openSystem
   )
 }
 
@@ -106,32 +115,36 @@ export async function openServerLoopbackInSystemBrowser(
  *  one first when needed. Never opens this computer's own localhost. Call only from a person's gesture. */
 export async function openSshLoopbackInSystemBrowser(
   rawUrl: string,
-  targetId: string
-): Promise<void> {
+  targetId: string,
+  /** Opens the forwarded address; resolving `false` means it did not open (superseded or refused). */
+  openSystem: SystemOpener = openSystemHttpLink
+): Promise<boolean> {
   const port = remoteUrlPort(rawUrl)
   if (port === null) {
-    return
+    return false
   }
   const host = selectExecutionHostDisplayLabel(
     useAppStore.getState(),
     toSshExecutionHostId(targetId)
   )
-  await openSshTargetLoopback(rawUrl, port, targetId, host)
+  return openSshTargetLoopback(rawUrl, port, targetId, host, openSystem)
 }
 
+/** Resolves whether an address reached `openSystem`. */
 async function openSshTargetLoopback(
   rawUrl: string,
   port: number,
   targetId: string,
-  host: string
-): Promise<void> {
+  host: string,
+  openSystem: SystemOpener
+): Promise<boolean> {
   const known = forwardedUrlForRemoteUrl(
     rawUrl,
     useAppStore.getState().portForwardsByConnection[targetId] ?? []
   )
   if (known) {
-    await openSystemHttpLink(known)
-    return
+    await openSystem(known)
+    return true
   }
   const ensure = window.api.ssh?.ensurePortForward
   if (!ensure || !sshForwardsPorts(targetId)) {
@@ -142,9 +155,15 @@ async function openSshTargetLoopback(
         { port, host }
       )
     )
-    return
+    return false
   }
-  await openThroughNewForward(rawUrl, port, host, () => ensure({ targetId, remotePort: port }))
+  return openThroughNewForward(
+    rawUrl,
+    port,
+    host,
+    () => ensure({ targetId, remotePort: port }),
+    openSystem
+  )
 }
 
 function remoteUrlPort(rawUrl: string): number | null {
@@ -160,8 +179,9 @@ async function openThroughNewForward(
   rawUrl: string,
   port: number,
   host: string,
-  ensure: () => Promise<{ entry: PortForwardEntry; created: boolean }>
-): Promise<void> {
+  ensure: () => Promise<{ entry: PortForwardEntry; created: boolean }>,
+  openSystem: SystemOpener
+): Promise<boolean> {
   let target: string | null
   let created: boolean
   try {
@@ -180,9 +200,9 @@ async function openThroughNewForward(
         { port, host }
       )
     )
-    return
+    return false
   }
-  await openSystemHttpLink(target)
+  const opened = (await openSystem(target)) !== false
   if (created) {
     toast.success(
       translate(
@@ -190,15 +210,19 @@ async function openThroughNewForward(
         'Forwarded port {{port}} from {{host}}',
         { port, host }
       ),
-      {
-        description: translate(
-          'auto.lib.workspace.ports.serverPortForward.opened',
-          'Opened {{address}} in your default browser.',
-          { address: new URL(target).host }
-        )
-      }
+      // Say the page opened only when it did.
+      opened
+        ? {
+            description: translate(
+              'auto.lib.workspace.ports.serverPortForward.opened',
+              'Opened {{address}} in your default browser.',
+              { address: new URL(target).host }
+            )
+          }
+        : undefined
     )
   }
+  return true
 }
 
 /** Tells the person once that a forward restored after a restart listens on another port here. */

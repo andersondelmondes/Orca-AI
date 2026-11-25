@@ -1,6 +1,5 @@
 import {
   isRemoteLoopbackHttpLink,
-  openOwnedSystemHttpLink,
   localhostLabelRouteForHttpLink,
   openLabeledLocalhostLink
 } from './http-link-localhost-route'
@@ -14,7 +13,6 @@ import {
   canOpenLinkInSourceGroup
 } from '../../links/placement/link-open-intent'
 import type { LinkOpenIntent, LinkSourceState } from '../../links/placement/link-open-intent'
-import { showBrowserOpenFailure } from '../workspace/workspace-browser-open-failure-toast'
 import { isFloatingWorkspaceId } from '../../../../../shared/workspace/identity/floating-workspace-worktree'
 import { reselectWorkspaceKeepingHost } from '../../workspace/ownership/active-workspace-host'
 import { captureBrowserLinkReveal } from './browser-link-reveal'
@@ -31,22 +29,16 @@ import type { AppState } from '@/store/types'
 import type { GlobalSettings } from '../../../../../shared/settings/global-settings-types'
 import type { ExecutionHostId } from '../../../../../shared/execution-host/execution-host'
 import type { OpenHttpLinkOptions, WorkspaceHttpLinkBrowserOpener } from './http-link-destinations'
+import type { BrowserOpenOutcome } from './browser-link-destination'
+import {
+  admissionForBrowserOutcome,
+  onceAdmission,
+  openSystemHttpLink as openSystemHttpLinkForAdmission,
+  openOwnedSystemHttpLinkAdmitted,
+  settleHttpLinkBrowserOpen
+} from './http-link-admission'
 
-function settleHttpLinkBrowserOpen(
-  opening: Promise<string | null | void>,
-  reveal: { dispose: () => void },
-  background: boolean,
-  onComplete?: OpenHttpLinkOptions['onBrowserOpenComplete']
-): void {
-  if (onComplete) {
-    void opening
-      .then((pageId) => onComplete({ pageId: pageId ?? null, background }))
-      .catch(showBrowserOpenFailure)
-      .finally(reveal.dispose)
-    return
-  }
-  void opening.catch(showBrowserOpenFailure).finally(reveal.dispose)
-}
+export { onceAdmission, type HttpLinkAdmission } from './http-link-admission'
 
 export type HttpLinkSourceOwner =
   | { kind: 'local' }
@@ -138,14 +130,7 @@ export function canHttpLinkOpenInSourceGroup(
   return state ? canOpenLinkInSourceGroup(state, workspaceId, sourceTabId) : false
 }
 
-/** The one renderer route to the system browser for an address already resolved for it. */
-export async function openSystemHttpLink(url: string): Promise<void> {
-  try {
-    await window.api.shell.openUrl(url)
-  } catch {
-    showBrowserOpenFailure(null)
-  }
-}
+export { openSystemHttpLinkResolved as openSystemHttpLink } from './http-link-admission'
 
 export type HttpLinkDestination = 'orca-browser' | 'system-browser' | 'none'
 
@@ -169,14 +154,19 @@ function executeHttpLink(
   opts: OpenHttpLinkOptions,
   remoteRuntimeActive: boolean
 ): HttpLinkDestination {
+  const settle = onceAdmission(opts.onAdmission)
   if (opts.linkContext?.isCurrentRequest?.() === false) {
+    settle('superseded')
     return 'none'
   }
   const { worktreeId, allowRemoteInApp, forceSystemBrowser, forceInApp, sourceOwner } = opts
   if (sourceOwner?.kind === 'unknown') {
+    settle('refused')
     return 'none'
   }
   const state = storeAccessor?.()
+  const onDetailedOutcome = (outcome: BrowserOpenOutcome): void =>
+    settle(admissionForBrowserOutcome(outcome))
   const effectiveSourceOwner = sourceOwner
   const sourceIsLocal = effectiveSourceOwner
     ? effectiveSourceOwner.kind === 'local'
@@ -185,6 +175,7 @@ function executeHttpLink(
   // A client fallback tab browses from this desktop, so it cannot reach the owner's loopback either.
   const prefersOrca =
     openLinksInApp ||
+    opts.preferInApp === true ||
     (!opts.allowClientBrowserFallback &&
       isRemoteLoopbackHttpLink(url, effectiveSourceOwner, worktreeId))
   const modifier = resolveModifierRouting(
@@ -218,7 +209,12 @@ function executeHttpLink(
         url,
         intent: { kind: 'url' },
         ...fields,
-        linkContext: { linkIntent: null, ...opts.linkContext, canReveal: reveal.canReveal },
+        linkContext: {
+          linkIntent: null,
+          ...opts.linkContext,
+          canReveal: reveal.canReveal,
+          onDetailedOutcome
+        },
         ...(opts.allowClientBrowserFallback ? { allowClientBrowserFallback: true } : {}),
         // Why: only links that already open in Orca may use a "This device" SSH host's desktop tab.
         ...(openLinksInApp ? { allowSshDeviceBrowser: true } : {}),
@@ -232,10 +228,12 @@ function executeHttpLink(
         opening,
         reveal,
         opts.onBrowserOpenComplete ? isHttpLinkBackgroundOpen(state) : false,
-        opts.onBrowserOpenComplete
+        opts.onBrowserOpenComplete,
+        settle
       )
       return 'orca-browser'
     }
+    settle('refused')
     return 'none'
   }
 
@@ -245,6 +243,8 @@ function executeHttpLink(
     const openLocal = (chosenUrl: string): void => {
       if (opts.linkContext?.isCurrentRequest?.() === false) {
         reveal.dispose()
+        // No opener runs on this return, so nothing else would settle it.
+        settle('superseded')
         return
       }
       if (workspaceHttpLinkBrowserOpener) {
@@ -252,7 +252,12 @@ function executeHttpLink(
           workspaceId: worktreeId,
           url: chosenUrl,
           intent: { kind: 'url' },
-          linkContext: { linkIntent: null, ...opts.linkContext, canReveal: reveal.canReveal },
+          linkContext: {
+            linkIntent: null,
+            ...opts.linkContext,
+            canReveal: reveal.canReveal,
+            onDetailedOutcome
+          },
           ...(isHttpLinkBackgroundOpen(state)
             ? { focusOnCreate: false, selectWorktree: false }
             : {})
@@ -261,7 +266,8 @@ function executeHttpLink(
           opening,
           reveal,
           opts.onBrowserOpenComplete ? isHttpLinkBackgroundOpen(state) : false,
-          opts.onBrowserOpenComplete
+          opts.onBrowserOpenComplete,
+          settle
         )
         return
       }
@@ -271,6 +277,7 @@ function executeHttpLink(
         reselectWorkspaceKeepingHost(state, worktreeId)
       }
       openLocalHttpLinkTab(getState(), worktreeId, chosenUrl, undefined, activate)
+      settle('admitted')
     }
     const localhostRoute = localhostLabelRouteForHttpLink(url, state, sourceOwner)
     if (localhostRoute) {
@@ -283,14 +290,15 @@ function executeHttpLink(
 
   const localhostRoute = state ? localhostLabelRouteForHttpLink(url, state, sourceOwner) : null
   if (!localhostRoute) {
-    openOwnedSystemHttpLink(url, effectiveSourceOwner, worktreeId, openSystemHttpLink)
+    openOwnedSystemHttpLinkAdmitted(url, effectiveSourceOwner, opts, settle)
     return 'system-browser'
   }
   void openLabeledLocalhostLink(url, localhostRoute, (labeledUrl) => {
     if (opts.linkContext?.isCurrentRequest?.() === false) {
+      settle('superseded')
       return
     }
-    void openSystemHttpLink(labeledUrl)
+    void openSystemHttpLinkForAdmission(labeledUrl).then(settle)
   })
   return 'system-browser'
 }

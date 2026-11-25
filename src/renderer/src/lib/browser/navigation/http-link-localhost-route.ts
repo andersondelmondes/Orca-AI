@@ -43,28 +43,37 @@ export function isRemoteLoopbackHttpLink(
 }
 
 /** Opens a link in the system browser; an SSH host's or paired server's own localhost opens through
- *  a forward of its port, never as this computer's localhost. */
-export function openOwnedSystemHttpLink(
+ *  a forward of its port, never as this computer's localhost. Resolves whether an address reached
+ *  `openSystem`. */
+export async function openOwnedSystemHttpLink(
   url: string,
   sourceOwner: HttpLinkSourceOwner | undefined,
   worktreeId: string | null | undefined,
-  openSystem: (url: string) => Promise<void>
-): void {
+  openSystem: (url: string) => Promise<unknown>
+): Promise<boolean> {
   if (
     (sourceOwner?.kind !== 'runtime' && sourceOwner?.kind !== 'ssh') ||
     !isLoopbackBrowserUrl(url)
   ) {
-    void openSystem(url)
-    return
+    await openSystem(url)
+    return true
   }
-  // Loaded on demand: the opener reads the store, which imports link routing.
-  void import('@/lib/workspace-ports/server-port-forward-open')
-    .then(({ openServerLoopbackInSystemBrowser, openSshLoopbackInSystemBrowser }) =>
-      sourceOwner.kind === 'ssh'
-        ? openSshLoopbackInSystemBrowser(url, sourceOwner.connectionId)
-        : openServerLoopbackInSystemBrowser(url, sourceOwner.runtimeEnvironmentId, worktreeId)
-    )
-    .catch((error: unknown) => console.error('Failed to open the server port:', error))
+  try {
+    // Loaded on demand: the opener reads the store, which imports link routing.
+    const { openServerLoopbackInSystemBrowser, openSshLoopbackInSystemBrowser } =
+      await import('@/lib/workspace-ports/server-port-forward-open')
+    return await (sourceOwner.kind === 'ssh'
+      ? openSshLoopbackInSystemBrowser(url, sourceOwner.connectionId, openSystem)
+      : openServerLoopbackInSystemBrowser(
+          url,
+          sourceOwner.runtimeEnvironmentId,
+          worktreeId,
+          openSystem
+        ))
+  } catch (error) {
+    console.error('Failed to open the server port:', error)
+    return false
+  }
 }
 
 export function localhostLabelRouteForHttpLink(
