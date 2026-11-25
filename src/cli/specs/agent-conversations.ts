@@ -37,8 +37,8 @@ export const AGENT_CONVERSATION_COMMAND_SPECS: CommandSpec[] = [
     positionalArgs: ['id'],
     notes: [
       '<id> is the `orca_session_id:` ID from `orca agent list` or Copy Orca Session ID.',
-      "Closes every open tab of that agent: a chat's tab, or a terminal agent's tab and its process. The history stays readable with `orca agent read`.",
-      'An agent that is not open closes nothing and the command still succeeds. A sleeping terminal agent has no live tab, so it is reported as skipped.'
+      "Closes every open tab of that agent: a chat's tab, or a terminal agent's tab and its process. A chat's history stays readable with `orca agent read`; a closed terminal agent may no longer be readable.",
+      'An agent that is not open closes nothing and the command still succeeds. A terminal agent with no live tab, because it is asleep or its tab is not open in the app, is reported as skipped.'
     ],
     examples: ['orca agent close orca_session_id:3540ecf3-47c3-4876-b825-81bf5d6b3595 --json']
   },

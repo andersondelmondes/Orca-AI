@@ -19,16 +19,26 @@ export async function closeAgentConversation(
   for (const place of places) {
     const status = statuses.find((candidate) => candidate.paneKey === place.paneKey)
     const chatSessionId =
-      resolved.kind === 'chat' ? structuredAgentSessionIdFromTabId(parsePaneKey(place.paneKey)?.tabId ?? '') : null
+      resolved.kind === 'chat'
+        ? structuredAgentSessionIdFromTabId(parsePaneKey(place.paneKey)?.tabId ?? '')
+        : null
     if (chatSessionId) {
       await closeStructuredAgentSession(ctx, chatSessionId)
       closed.push(place)
     } else if (resolved.kind === 'terminal' && status?.terminalHandle) {
       const handle = status.terminalHandle
-      await withTerminalCloseAttribution('terminal.closeTab', ctx, 'terminal-tab', handle, () =>
-        ctx.runtime.closeTerminalTab(handle)
-      )
-      closed.push(place)
+      try {
+        await withTerminalCloseAttribution('terminal.closeTab', ctx, 'terminal-tab', handle, () =>
+          ctx.runtime.closeTerminalTab(handle)
+        )
+        closed.push(place)
+      } catch (error) {
+        // A terminal whose tab the app never opened has no tab to close.
+        if (!(error instanceof Error && error.message.includes('terminal_handle_stale'))) {
+          throw error
+        }
+        skipped.push(place)
+      }
     } else {
       skipped.push(place)
     }
