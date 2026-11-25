@@ -30,6 +30,7 @@ import { useHostScreenState } from './use-host-screen-state'
 import { useHostViewSettings } from './view-settings/use-host-view-settings'
 import { countActiveWorkspaceFilters } from '../../../src/shared/workspace-view/workspace-row-filters'
 import { useHostWorktreeActions } from './workspace-actions/use-host-worktree-actions'
+import { useHostListDeleteIntent } from './workspace-actions/use-host-list-delete-intent'
 import { useHostWorktreeCatalog } from './catalog/use-host-worktree-catalog'
 import { useHostDisplay } from '../host-descriptors/use-host-display'
 import { classifyConnection } from '../transport/connection/connection-health'
@@ -152,6 +153,15 @@ export function useHostScreenController({
     pairedChangeKey: botsChangeKeys.host + botsChangeKeys['host-threads'],
     pairedThreadsKey: botsChangeKeys['host-threads']
   })
+  const retireDeleteIntent = useHostListDeleteIntent({
+    embedded,
+    hostId,
+    connected: connState === 'connected',
+    rows: displayWorktrees,
+    bots,
+    newBotOpen: newBotHostId !== null,
+    state
+  })
   const sectionsResult = useHostListSections({
     client,
     connected: connState === 'connected',
@@ -207,6 +217,7 @@ export function useHostScreenController({
     onHideSidebar,
     reconnectAttempts,
     relayRecovery,
+    retireDeleteIntent,
     routeNotice,
     router,
     sectionsResult,
