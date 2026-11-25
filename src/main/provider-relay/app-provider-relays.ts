@@ -1,8 +1,7 @@
 import type { DaemonClient } from '../daemon/transport/client/daemon-client'
 import type {
   ProviderRelayDetachPolicy,
-  ProviderRelayKeepSpec,
-  ProviderRelaySpawnSpec
+  ProviderRelayKeepSpec
 } from '../daemon/protocol/daemon-provider-relay-protocol'
 import type { ProviderRelayWorkMarkers } from './provider-relay-agent-markers'
 export {
@@ -31,17 +30,13 @@ import {
 export { KeptProviderRelayEndedError, KeptProviderRelayUnreachableError }
 export { withProviderRelayRebind } from './provider-relay-kept-rebind'
 import type { ManagedProviderProcess } from '../provider-process/managed-provider-process'
-import {
-  resolveProviderChildEnv,
-  type ProviderProcessLaunch
-} from '../provider-process/provider-process-launch'
-import { processEnvWithoutAgentSession } from '../../shared/agent-launch/startup/parent-agent-session-env'
-import { resolveProviderExecPath } from '../provider-process/provider-exec-path'
+import type { ProviderProcessLaunch } from '../provider-process/provider-process-launch'
 import { withTimeout } from '../../shared/concurrency/promise-timeout-fallback'
 import { providerRelayChannel, type ProviderRelayChannel } from './provider-relay-channel'
 import { RelayedProviderChild } from './relayed-provider-child'
 import { ProviderRelayCarriedWork } from './provider-relay-carried-work'
 import { relayedManagedProcess } from './relayed-managed-process'
+import { daemonReadsFolder, relaySpawnSpec } from './provider-relay-spawn-spec'
 
 /** Desktop composition installs this on macOS and Linux; anywhere else chats launch as before. */
 export type ProviderRelayRoute = {
@@ -64,6 +59,10 @@ export type ProviderRelayLaunch = {
   markers: ProviderRelayWorkMarkers
   /** Reattach only: lines this lets through while the rest wait for `releaseOutput()`. */
   passWhileHeld?: (line: string) => boolean
+  /** The agent's whole environment, when its caller already scrubbed it (not merged over the app's). */
+  inheritedEnv?: Record<string, string>
+  /** `spawn`: a still-listed kept agent refuses the start (its reattach is the caller's own). */
+  only?: 'spawn' | 'reattach'
   /** Session state the daemon keeps for the next attach; only a daemon that can keep it relays. */
   keep?: ProviderRelayKeepSpec
 }
@@ -91,6 +90,10 @@ let durableFor: ((chatKey: string, force: boolean) => Promise<boolean> | undefin
 
 export function installProviderRelayRoute(installed: ProviderRelayRoute | null): void {
   route = installed
+}
+
+export function providerRelayRouteInstalled(): boolean {
+  return route !== null
 }
 
 /** The session host's journal barrier; acks wait on it so replay after a crash loses nothing. */
@@ -131,53 +134,6 @@ async function connected(client: DaemonClient | null): Promise<DaemonClient | nu
     return client
   } catch {
     return null
-  }
-}
-
-function spawnSpec(
-  launch: ProviderProcessLaunch,
-  client: DaemonClient
-): ProviderRelaySpawnSpec | null {
-  const identity = client.getDaemonIdentity()
-  // A daemon kept from another bundle relays too, when it speaks the relay protocol.
-  if (!route || !identity?.providerRelay) {
-    return null
-  }
-  if (!launch.cwd) {
-    return null
-  }
-  const env: Record<string, string> = {}
-  const resolved = resolveProviderChildEnv(launch, processEnvWithoutAgentSession(process.platform))
-  for (const [key, value] of Object.entries(resolved)) {
-    if (value !== undefined) {
-      env[key] = value
-    }
-  }
-  return {
-    command: launch.command,
-    args: launch.args,
-    cwd: launch.cwd,
-    env,
-    ownerExecutable: resolveProviderExecPath(),
-    appVersion: route.appVersion,
-    ...(identity.entryPath ? { entryPath: identity.entryPath } : {})
-  }
-}
-
-/** On macOS the daemon may lack permission for the chat's folder; only a readable one relays. */
-async function daemonReadsFolder(client: DaemonClient, cwd: string): Promise<boolean> {
-  if (process.platform !== 'darwin') {
-    return true
-  }
-  try {
-    const reply = await client.request<{ outcome?: unknown } | null>(
-      'probeProviderCwd',
-      { cwd },
-      1_500
-    )
-    return reply?.outcome === 'ok'
-  } catch {
-    return false
   }
 }
 
@@ -243,6 +199,8 @@ async function reattachListed(launch: ProviderRelayLaunch): Promise<RelayedProvi
       track(launch.chatKey, child, launch.markers)
       return { managed: relayedManagedProcess(child), child, reattached: true }
     }
+    // Nothing takes this attach's held output: it goes, so the channel keeps none of it.
+    channel.release(info.relayId)
   }
   const verdict =
     info.exit === null && !endedSince
@@ -272,12 +230,15 @@ export async function launchRelayedProviderProcess(
     return null
   }
   await listProviderRelaysAtLaunch()
-  const kept = await reattachListed(relay)
-  if (kept) {
+  if (relay.only === 'spawn' && keptProviderRelay(relay.chatKey)) {
+    throw new KeptProviderRelayUnreachableError(relay.chatKey)
+  }
+  const kept = relay.only === 'spawn' ? null : await reattachListed(relay)
+  if (kept || relay.only === 'reattach') {
     return kept
   }
   const client = await connected(await route.current().catch(() => null))
-  const spec = client ? spawnSpec(launch, client) : null
+  const spec = client ? relaySpawnSpec(launch, client, route.appVersion, relay.inheritedEnv) : null
   // Without kept state a reattach would have nothing to restore, so such a launch goes as today.
   const keeps = !relay.keep || client?.getDaemonIdentity()?.providerRelayKeep === true
   if (!client || !spec || !keeps || !(await daemonReadsFolder(client, spec.cwd))) {

@@ -1,5 +1,5 @@
 import type { AgentSessionAcquisition } from '../../../native-chat/agent-session-wire/providers/structured-agent-session-adapter'
-import { openClaudeStreamJsonConnection } from '../../claude-stream-json-connection'
+import { claudeChatConnectionOpener } from '../../relay/claude-kept-agent-connection'
 import { claudeLaunchPermissions } from '../permissions/claude-structured-inbound-control'
 import * as replay from '../turns/claude-replay-turn-resolution'
 import { claudeFrameSendFacts } from '../turns/claude-command-lifecycle'
@@ -190,7 +190,7 @@ export async function acquireClaudeSession({
     attempt.launch = launch
     observedLeafUuid = launch.resumeLeafUuid
     const connection = await withAgentSessionCreatePhase('spawn', input.recordPhase, () =>
-      (deps.openConnection ?? openClaudeStreamJsonConnection)(
+      claudeChatConnectionOpener(launch.appBoundGrants ? null : sessionId, deps.openConnection)(
         {
           pathToClaudeCodeExecutable: launch.pathToClaudeCodeExecutable,
           prefixArgs: launch.prefixArgs,
@@ -275,6 +275,7 @@ export async function acquireClaudeSession({
     liveSession = session
     session.firstRootInit = firstRootInit
     session.orderedPermissionMode = permissions.orderedMode
+    session.liveFullAccess = permissions.liveFullAccess
     adoptClaudeStructuredSpawnOptions(session, {
       ...launch.savedOptions,
       sdkOptions: launch.options

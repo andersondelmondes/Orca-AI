@@ -1,4 +1,5 @@
 import * as correctionRows from '../../subagents/claude-provisional-row-corrections'
+import { adoptKeptClaudeWork } from '../../relay/claude-kept-turn'
 import { ClaudeTaskInvocations } from '../../background-tasks/claude-task-invocations'
 import { ClaudeJournalBoundDelivery } from './claude-journal-bound-delivery'
 import type * as contract from './claude-journal-translator-contract'
@@ -19,7 +20,7 @@ import { ClaudeSubagentIdentities } from '../../subagents/claude-subagent-identi
 import { ClaudeJournaledSubagents } from '../../subagents/claude-subagent-journaled-identities'
 import type { ClaudeStopCheck } from '../../claude-stop-readings'
 import { createClaudeStreamedBlockRegistry } from './claude-streamed-block-identity'
-import { createClaudeStreamedTextCheckpoints } from './claude-streamed-text-checkpoints'
+import * as checkpoints from './claude-streamed-text-checkpoints'
 import {
   claudeFrameParentRef,
   claudeStreamTurnSource,
@@ -41,10 +42,7 @@ import { ClaudeThreadGoal } from './claude-thread-goal'
 import { createClaudeFinalOutputCoverage } from './claude-final-output-coverage'
 import { withClaudeConversationContent } from './claude-internal-message-content'
 import { journalClaudeFullAccessRefusal } from '../permissions/claude-full-access-refusal-notice'
-import {
-  journalClaudePluginInputFailure,
-  settleClaudeInterruptedTurn
-} from './claude-plugin-input-failure-journal'
+import * as pluginInput from './claude-plugin-input-failure-journal'
 
 export function createClaudeJournalTranslator(
   deps: contract.ClaudeJournalTranslatorDeps
@@ -95,17 +93,15 @@ export function createClaudeJournalTranslator(
     openOutputTurn: (frame, observedAt) =>
       turn.ensureOpen(frame, claudeStreamTurnSource(frame), observedAt),
     turnScope,
-    ...(deps.onBackgroundTaskJournalFailure
-      ? { onPersistenceFailure: deps.onBackgroundTaskJournalFailure }
-      : {})
+    onPersistenceFailure: deps.onBackgroundTaskJournalFailure,
+    handedOff: deps.handedOff
   })
-  const streamedText = createClaudeStreamedTextCheckpoints({
+  const streamedText = checkpoints.createClaudeStreamedTextCheckpoints({
     ...(deps.coalesceMs === undefined ? {} : { coalesceMs: deps.coalesceMs }),
     ...(deps.schedule ? { schedule: deps.schedule } : {}),
     producer: subagents.linkage,
     persist: (identity, text, options, ended) => {
-      const body = claudeStreamingMessageBody(text)
-      deps.sink.appendItem(identity, body, {
+      deps.sink.appendItem(identity, claudeStreamingMessageBody(text), {
         ...options,
         turnScope: turnScope(),
         ...(ended ? { lifecycle: true } : {})
@@ -122,6 +118,7 @@ export function createClaudeJournalTranslator(
     streamedText.flush()
     streamedThinking.flush()
   }
+  const unbind = checkpoints.bindClaudeUnsavedText(deps.sink, [streamedText, streamedThinking])
 
   const messageContext: ClaudeMessageJournalContext = {
     sink: deps.sink,
@@ -139,7 +136,6 @@ export function createClaudeJournalTranslator(
     usageLimits: new ClaudeUsageLimits(),
     threadGoal: new ClaudeThreadGoal(() => deps.sink.journalSnapshot?.()?.threadGoal)
   }
-
   const resultContext: ClaudeResultJournalContext = {
     ...messageContext,
     prompts,
@@ -158,11 +154,11 @@ export function createClaudeJournalTranslator(
     flush()
     corrections.abandon()
     backgroundTasks.settleSession()
-    settleClaudeInterruptedTurn(turn, observedAt, failed, stopCheck)
+    pluginInput.settleClaudeInterruptedTurn(turn, observedAt, failed, stopCheck)
   }
   const handle = withClaudeConversationContent((event) => {
     if (event.type === 'retiring') {
-      journalClaudePluginInputFailure({ event, turn, sink: deps.sink, finish })
+      pluginInput.journalClaudePluginInputFailure({ event, turn, sink: deps.sink, finish })
       return
     }
     if (event.type === 'ended') {
@@ -294,12 +290,14 @@ export function createClaudeJournalTranslator(
     recordContextReport: (target, report, askedAt) => context.recordReport(target, report, askedAt),
     modelMayHaveChanged: () => context.modelMayHaveChanged(),
     modelWritten: (model) => context.modelWritten(model),
+    adoptKept: (kept) => adoptKeptClaudeWork(turn, tools, kept, backgroundTasks),
     dispose: () => {
       delivery.dispose()
       flush()
       context.dispose()
       streamedText.dispose()
       streamedThinking.dispose()
+      unbind()
       tools.clear()
       prompts.clear()
       streamedBlocks.clear()
