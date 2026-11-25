@@ -72,6 +72,9 @@ export default function WorkspaceKanbanSheet({
     sidebarWidth,
     railWidth
   })
+  const panelZoom = 'var(--web-panel-zoom, 1)'
+  // The observed right edge and viewport width are viewport pixels; the sheet uses local CSS pixels.
+  const dockedWidth = `var(${BOARD_RIGHT_EDGE}, 100vw) / ${panelZoom} - ${drawerLeftCss}`
   const drawerBottom = `${statusBarVisible ? STATUS_BAR_RESERVE_HEIGHT : 0}px`
   const keepOpenForOutsideEvent = (event: {
     preventDefault: () => void
@@ -122,7 +125,7 @@ export default function WorkspaceKanbanSheet({
           top: WORKSPACE_TOP_CHROME_HEIGHT,
           bottom: drawerBottom,
           height: 'auto',
-          width: `min(max(var(${BOARD_RIGHT_EDGE}, 100vw) - ${drawerLeftCss}, ${MIN_DOCKED_BOARD_WIDTH}px), 100vw - ${drawerLeftCss}, 1294px)`
+          width: `min(max(${dockedWidth}, ${MIN_DOCKED_BOARD_WIDTH}px), 100vw / ${panelZoom} - ${drawerLeftCss}, 1294px)`
         }}
         data-contextual-tour-target="workspace-board-surface"
         data-workspace-board-sheet=""
