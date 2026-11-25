@@ -339,7 +339,7 @@ export function NativeChatMessageList({
     beginNavigation,
     scrollToBottom,
     onSent: newRows.dismiss,
-    revealFindMatch: readerInput.revealFindMatch,
+    readerInput,
     slots: allSlots
   })
 
