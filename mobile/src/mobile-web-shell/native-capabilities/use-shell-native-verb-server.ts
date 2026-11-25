@@ -21,7 +21,7 @@ export function useShellNativeVerbServer(args: {
   readWorkspaceKey: (key: string) => Promise<string | null>
 }): (verb: BridgeNativeVerb, params: unknown) => Promise<unknown> {
   const { hostId, sessionId, readWorkspaceKey } = args
-  const serveDeviceVerb = useNativeDeviceVerbs(sessionId)
+  const serveDeviceVerb = useNativeDeviceVerbs(sessionId, hostId)
   const servePdfView = useNativePdfViewer(hostId, sessionId)
   const serveImageAction = useNativeImageActions(sessionId)
   const serveDeferredCode = useDeferredCodeServer(hostId, args.buildId, args.store)
