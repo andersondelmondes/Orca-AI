@@ -3208,6 +3208,9 @@
       "download": "Скачать на этот телефон",
       "downloadSize": "Около {{size}} МБ",
       "phoneChecking": "Проверка…"
+    },
+    "bots": {
+      "memoryAlreadySaved": "Это уже есть в памяти."
     }
   },
   "sourceControl": {

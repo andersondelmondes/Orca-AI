@@ -2231,7 +2231,8 @@
         "ownNone": "Ainda não tem skills próprias.",
         "ownShort": "Skills próprias",
         "showMore": "Mostrar mais {{count}}"
-      }
+      },
+      "memoryAlreadySaved": "Essa informação já está na memória."
     },
     "automaticUpdates": {
       "title": "Atualizações automáticas",
