@@ -3,7 +3,7 @@ import { useTranslate } from '@/i18n/use-translate'
 import { findRepoForHost } from '@/store/repos/repo-host-identity'
 import type { AppState } from '@/store/types'
 import type { Repo } from '../../../../../../shared/repository/repo-types'
-import { ProjectGroupNameDialog } from './ProjectGroupNameDialog'
+import { SidebarNameDialog } from './SidebarNameDialog'
 import { ProjectGroupDeleteDialog } from './ProjectGroupDeleteDialog'
 import SuppressExternalWorktreeInboxDialog from '../listing/SuppressExternalWorktreeInboxDialog'
 import type { NewExternalWorktreesInboxActionState } from '../listing/new-external-worktrees-inbox-actions'
@@ -29,10 +29,10 @@ export function SidebarWorktreeListDialogs({
   onOpenWorktreeVisibility: (repo: Repo) => void
 }): React.JSX.Element {
   const t = useTranslate()
-  const { nameDialog, setNameDialog, deleteDialog, setDeleteDialog } = dialogs
+  const { projectRenameDialog, nameDialog, setNameDialog, deleteDialog, setDeleteDialog } = dialogs
   return (
     <>
-      <ProjectGroupNameDialog
+      <SidebarNameDialog
         open={nameDialog !== null}
         title={
           nameDialog?.type === 'rename'
@@ -72,6 +72,23 @@ export function SidebarWorktreeListDialogs({
           }
         }}
         onSubmit={dialogs.handleSubmitProjectGroupName}
+      />
+      <SidebarNameDialog
+        open={projectRenameDialog.projectRenameDialog !== null}
+        title={t('auto.components.sidebar.ProjectRenameDialog.title', 'Rename Project')}
+        description={t(
+          'auto.components.sidebar.ProjectRenameDialog.description',
+          'Update the project name shown in the sidebar.'
+        )}
+        label={t('auto.components.sidebar.ProjectRenameDialog.label', 'Project name')}
+        initialName={projectRenameDialog.projectRenameDialog?.repos[0]?.displayName ?? ''}
+        confirmLabel={t('auto.components.sidebar.ProjectGroupNameDialog.rename', 'Rename')}
+        onOpenChange={(open) => {
+          if (!open) {
+            projectRenameDialog.setProjectRenameDialog(null)
+          }
+        }}
+        onSubmit={projectRenameDialog.handleSubmitProjectRename}
       />
       <SuppressExternalWorktreeInboxDialog
         open={suppressExternalWorktreeInboxRepoId !== null}
