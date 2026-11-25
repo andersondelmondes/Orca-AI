@@ -3,7 +3,10 @@
 import { requestsCwdOutsideWorkspaceRoot } from '../../shared/shell/launch/terminal-startup-cwd'
 import type { AgentLaunchModeReceipt } from '../../shared/agent-launch/contracts/agent-launch-intent'
 import { RUNTIME_CAPABILITIES } from '../../shared/remote-runtime/protocol/protocol-version'
-import { STRUCTURED_AGENT_RUNTIME_METADATA } from '../runtime/agent-session/installation/structured-agent-runtime-metadata'
+import {
+  REGISTERED_STRUCTURED_AGENTS,
+  readStructuredCreateSupport
+} from './agent-launch-structured-create-support'
 import {
   nativeChatPreferenceFor,
   resolveStructuredNativeChatSupport,
@@ -16,7 +19,11 @@ import type {
   StructuredAgentCreateSupportReply
 } from '../../shared/agent-session/lifecycle/operations/structured-agent-create-support-reply'
 import type { WorkspaceLaunchKind } from '../../shared/agent-launch/contracts/workspace-launch-kind'
-import type { OrcaRuntimeService } from '../runtime/orca-runtime'
+import {
+  PROJECT_CLAUDE_ACCOUNT_DETAIL,
+  projectClaudeAccountForLaunch,
+  type AgentLaunchModeHostRuntime
+} from './agent-launch-project-claude-account'
 import type { AgentLaunchSurface } from '../../shared/agent-launch/contracts/agent-launch-surface'
 import { formatAgentTypeLabel } from '../../shared/agent-status/presentation/agent-type-label'
 import { AgentLaunchSurfaceUnavailableError } from './agent-launch-surface-refusal'
@@ -52,6 +59,8 @@ export type AgentLaunchModePlacement = {
   terminal?: string
   /** Derived by the host; absent means unknown, not a default workspace kind. */
   workspaceKind?: WorkspaceLaunchKind
+  /** `--account`: a structured session cannot run on a non-active account. */
+  claudeAccount?: string
   /** Structured sessions cannot honor a cwd outside their workspace root. */
   cwd?: string
   /** Missing until materialization; a requested cwd cannot be classified without it. */
@@ -59,10 +68,6 @@ export type AgentLaunchModePlacement = {
   /** False if the client cannot display this chat; host callers may omit it. */
   callerRendersStructured?: boolean
 }
-
-const REGISTERED_STRUCTURED_AGENTS: readonly string[] = STRUCTURED_AGENT_RUNTIME_METADATA.map(
-  ({ definition }) => definition.agent
-)
 
 const BLOCKER_REASON: Record<StructuredNativeChatBlocker, AgentLaunchDowngradeReason> = {
   'reused-terminal': 'reused_terminal',
@@ -128,6 +133,9 @@ export function decideAgentLaunchMode(args: {
   if (placement.on) {
     return blocked('remote_execution_host')
   }
+  if (placement.claudeAccount) {
+    return blocked('pinned_claude_account')
+  }
   const cwdRelation = launchCwdRelation(placement)
   const support = resolveStructuredNativeChatSupport({
     agent,
@@ -174,8 +182,7 @@ export function decideAgentLaunchMode(args: {
 
 /** Refuse explicit chat only before effects; a created workspace keeps its terminal fallback. */
 export async function resolveAgentLaunchModeOnHost(
-  runtime: Pick<OrcaRuntimeService, 'getStructuredAgentSessionCreateSupport'> &
-    WslHostChatSettingsSource,
+  runtime: AgentLaunchModeHostRuntime & WslHostChatSettingsSource,
   receipt: AgentLaunchModeReceipt,
   worktreeId: string | undefined,
   agent: TuiAgent | undefined,
@@ -185,44 +192,36 @@ export async function resolveAgentLaunchModeOnHost(
   if (receipt.mode !== 'structured' || !worktreeId) {
     return receipt
   }
+  const settlement = context ? { ...context, agent } : undefined
   if (context && launchCwdRelation(context) !== 'root') {
     return unavailableLaunchMode(
       'tui_launch_command',
       vocabulary,
       chatPreferenceOf(receipt),
-      {
-        ...context,
-        agent
-      },
+      settlement,
       launchCwdRelation(context) === 'custom'
     )
   }
   const support = await readStructuredCreateSupport(runtime, worktreeId, agent)
-  const settlement = context ? { ...context, agent } : undefined
+  let settled: AgentLaunchModeReceipt
   try {
-    return downgradeAgentLaunchModeForHost(receipt, support, vocabulary, settlement)
+    settled = downgradeAgentLaunchModeForHost(receipt, support, vocabulary, settlement)
   } catch (error) {
     throw await withWslHostChatRecovery(error, context?.workspacePath, runtime)
   }
-}
-
-/** Unknown host support must fall back to a terminal. */
-async function readStructuredCreateSupport(
-  runtime: Pick<OrcaRuntimeService, 'getStructuredAgentSessionCreateSupport'>,
-  worktreeId: string,
-  agent: TuiAgent | undefined
-): Promise<StructuredAgentCreateSupportReply | null> {
-  if (!agent || !REGISTERED_STRUCTURED_AGENTS.includes(agent)) {
-    return { supported: false, reason: 'agent' }
+  // Why after the host verdict: an SSH or WSL workspace, which never pins, keeps its own reason.
+  if (settled.mode !== 'structured' || !projectClaudeAccountForLaunch(runtime, worktreeId, agent)) {
+    return settled
   }
-  try {
-    // These launches have no chat tab to offer the install, so they keep the agent's own CLI.
-    return await runtime.getStructuredAgentSessionCreateSupport(`id:${worktreeId}`, agent, {
-      requireInstalledChatProgram: true
-    })
-  } catch {
-    return null
-  }
+  // Why refused: an explicit chat request must not quietly become a terminal before anything opens.
+  return unavailableLaunchMode(
+    'pinned_claude_account',
+    vocabulary,
+    chatPreferenceOf(settled),
+    settlement,
+    true,
+    PROJECT_CLAUDE_ACCOUNT_DETAIL
+  )
 }
 
 export function downgradeAgentLaunchModeForHost(
@@ -287,15 +286,16 @@ function unavailableLaunchMode(
   vocabulary: AgentLaunchModeVocabulary,
   preference: ChatPreference,
   context?: AgentLaunchModeSettlement,
-  conclusive = true
+  conclusive = true,
+  detail?: string
 ): AgentLaunchModeReceipt {
   if (preference === 'requested' && conclusive && context?.phase === 'before-effects') {
     throw new AgentLaunchSurfaceUnavailableError(
-      `${formatAgentTypeLabel(context.agent)} can't open as a chat here because ${DOWNGRADE_DETAIL[reason]}. Start it in a terminal instead.`,
+      `${formatAgentTypeLabel(context.agent)} can't open as a chat here because ${detail ?? DOWNGRADE_DETAIL[reason]}. Start it in a terminal instead.`,
       reason
     )
   }
-  return downgraded(reason, vocabulary, preference)
+  return downgraded(reason, vocabulary, preference, detail)
 }
 
 export function warnStructuredLaunchDowngrade(
