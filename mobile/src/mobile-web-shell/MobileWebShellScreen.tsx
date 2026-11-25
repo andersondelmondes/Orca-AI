@@ -38,6 +38,9 @@ import { useReportedHostAreaServing } from './host-gates/host-area-serving'
 import { isHostRouteOf } from './routing/page-route-policy'
 import { isStandaloneSessionHref } from '../navigation/host-stack-navigation'
 import { nativeSessionReturn, nativeStackReturn } from './routing/native-stack-return'
+import { BRIDGE_TERMINAL_KEY_RAIL_GRANT } from './bridge/native-capabilities/bridge-terminal-key'
+import { useShellSideRelease } from './use-shell-side-release'
+import { useDuoChatWidthPublish } from './use-duo-chat-width-publish'
 import { useResponsiveLayout } from '../layout/responsive-layout'
 import {
   storageReadParamsSchema,
@@ -152,6 +155,7 @@ export function MobileWebShellScreen({
   })
   const readySessionId = state.kind === 'ready' ? state.sessionId : null
   const keyRail = useShellKeyRail({ sessionId: readySessionId, overlay, routeGrants })
+  useShellSideRelease(!overlay && routeGrants.includes(BRIDGE_TERMINAL_KEY_RAIL_GRANT))
   const {
     snapshot,
     unreadable,
@@ -317,6 +321,7 @@ export function MobileWebShellScreen({
 
   // paneKey changes keep the session mounted; the host deduplicates routes and preserves in-flight frames.
   useShellPageStorageRefresh(refreshStorage, bridge.publishStorage)
+  useDuoChatWidthPublish(bridge.publishStorage)
   useEffect(() => bridge.publishRoute(pageRoute), [bridge.publishRoute, pageRoute])
 
   usePublishedSafeAreaInsets(bridge.publishSafeAreaInsets, pageInsets)
