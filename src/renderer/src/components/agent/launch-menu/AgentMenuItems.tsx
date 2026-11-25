@@ -27,6 +27,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut
 } from '@/components/ui/dropdown-menu'
+import { HermesProfileSubmenu } from './hermes-profile-submenu'
+import { hermesProfileSubmenuApplies, useHermesLaunchProfiles } from './use-hermes-launch-profiles'
 import { getAgentCatalog } from '@/lib/agent-catalog/agent-catalog'
 import { AgentIcon } from '@/components/agent/icons/AgentIcon'
 import { useOptionalShortcutLabel } from '@/lib/keyboard/useShortcutLabel'
@@ -93,7 +95,13 @@ export function useTabAgentMenuLaunch({
   onFocusChat?: (tabId: string) => void
 }) {
   const runLaunch = useCallback(
-    (row: NewTabAgentMenuRow, draft?: AgentPickerDraft, pickerEntry?: AgentPickerEntry) => {
+    (
+      row: NewTabAgentMenuRow,
+      draft?: AgentPickerDraft,
+      pickerEntry?: AgentPickerEntry,
+      /** A profile pick's full Arguments text; it replaces the configured one for this launch. */
+      agentArgsOverride?: string
+    ) => {
       if (
         disabled ||
         row.kind === 'chat-unavailable' ||
@@ -127,6 +135,7 @@ export function useTabAgentMenuLaunch({
               pickerEntry
             )
           : {}),
+        ...(agentArgsOverride !== undefined ? { agentArgs: agentArgsOverride } : {}),
         worktreeId,
         groupId,
         // A caller's prompt (notes) owns the launch; otherwise the picker panel's typed one.
@@ -193,7 +202,14 @@ function QuickLaunchAgentMenuItemsInner(props: QuickLaunchAgentMenuItemsProps): 
   const detectionTarget = useAgentDetectionTargetForWorktree(props.worktreeId)
   const model = useNewTabAgentMenuRows(props.worktreeId, true, detectionTarget)
   const runLaunch = useTabAgentMenuLaunch(props)
-  return <ProjectedAgentMenuItems {...props} model={model} runLaunch={runLaunch} />
+  return (
+    <ProjectedAgentMenuItems
+      {...props}
+      model={model}
+      runLaunch={runLaunch}
+      menuWorktreeId={props.worktreeId}
+    />
+  )
 }
 
 export function ProjectedAgentMenuItems({
@@ -202,7 +218,8 @@ export function ProjectedAgentMenuItems({
   runLaunch,
   pickerInventory,
   onSelectPickerAgent,
-  hidePickerSearch
+  hidePickerSearch,
+  menuWorktreeId
 }: {
   disabled?: boolean
   model: NewTabAgentMenuModel
@@ -210,11 +227,24 @@ export function ProjectedAgentMenuItems({
   pickerInventory?: AgentPickerInventorySource
   onSelectPickerAgent?: (agent: AgentPickerEntry['agent']) => void
   hidePickerSearch?: boolean
+  /** The workspace the rows launch into; its path names a WSL distro's Hermes home. */
+  menuWorktreeId?: string
 }): React.JSX.Element {
   const t = useTranslate()
   const desktopDefaultAgent = useAppStateValue((s) => s.settings?.defaultTuiAgent)
   const newAgentShortcut = useOptionalShortcutLabel('tab.newAgent')
   const shortcutLabels = useAgentMenuShortcutLabels(pickerInventory ? model : undefined)
+  // Only the plain rows list expands a submenu; the picker card carries its own Profile row.
+  const hermesRow =
+    model.state === 'settled' && !pickerInventory
+      ? model.rows.find((row) => row.agent === 'hermes' && row.kind === 'cli')
+      : undefined
+  // Hooks stay unconditional: the menu toggles between its loading placeholders and settled rows.
+  const hermesProfiles = useHermesLaunchProfiles(
+    hermesRow !== undefined && hermesProfileSubmenuApplies(hermesRow.executionHostId),
+    hermesRow?.executionHostId,
+    menuWorktreeId
+  )
   if (model.state === 'loading') {
     // Why: rows fill in once when every answer is known, instead of reshuffling under the pointer.
     return (
@@ -310,6 +340,22 @@ export function ProjectedAgentMenuItems({
             </>
           )
           const other = otherSurfaceRow(row, detectedIds)
+          const profileSubmenu =
+            row === hermesRow &&
+            row.kind === 'cli' &&
+            !other &&
+            hermesProfiles &&
+            hermesProfiles.profiles.length > 0 ? (
+              <HermesProfileSubmenu
+                row={row}
+                profiles={hermesProfiles}
+                pendingReason={pendingReason}
+                disabled={disabled}
+                runLaunch={runLaunch}
+              >
+                {rowContent}
+              </HermesProfileSubmenu>
+            ) : null
           return (
             <React.Fragment key={rowId(row)}>
               {startsCliGroup ? <DropdownMenuSeparator /> : null}
@@ -324,6 +370,8 @@ export function ProjectedAgentMenuItems({
                 >
                   {rowContent}
                 </TabAgentSurfaceChoiceRow>
+              ) : profileSubmenu ? (
+                profileSubmenu
               ) : (
                 <DropdownMenuItem
                   variant="launch"
