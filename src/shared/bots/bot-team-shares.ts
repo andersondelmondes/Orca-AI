@@ -27,7 +27,11 @@ export const BotShareSchema = z.discriminatedUnion('kind', [
     accountId: z.string().min(1).max(128),
     name: z.string().min(1).optional(),
     email: BotShareEmailSchema,
-    addedAt: z.number()
+    addedAt: z.number(),
+    /** When the teammate accepted it (a device of theirs asked to reach the bot); absent until then. */
+    acceptedAt: z.number().optional(),
+    /** When the teammate declined it: it stays listed for the owner, as declined, never offered again. */
+    declinedAt: z.number().optional()
   }),
   z.object({
     kind: z.literal('invite'),
@@ -110,12 +114,74 @@ export function withBotShareResolved(
   return shares.map((entry) => (entry === share ? account : entry))
 }
 
-/** The share an accept names, while it is still that account's. */
+/** A share's teammate answer, as the owner's list and the teammate's computer each keep it. */
+export type BotShareAnswered = { declinedAt?: number }
+
+/** Whether a share grants anything. A declined one never does: no access or offer on the owner's host,
+ *  no keys or pairing on the teammate's computer. */
+export function botShareUsable(share: BotShareAnswered): boolean {
+  return share.declinedAt === undefined
+}
+
+/** The share an accept names, while it is still that account's and usable. */
 export function botAccountShare(
   shares: readonly BotShare[] | undefined,
   shareId: string,
   accountId: string
 ): BotAccountShare | null {
   const share = shares?.find((entry) => entry.shareId === shareId)
-  return share?.kind === 'account' && share.accountId === accountId ? share : null
+  return share?.kind === 'account' && share.accountId === accountId && botShareUsable(share)
+    ? share
+    : null
+}
+
+export type BotShareAnswer = { shareId: string; accountId: string; answer: 'accepted' | 'declined' }
+
+/** The list with that account's share marked accepted or declined at `at`; the same list once it is
+ *  answered, or the share isn't that account's (removed, or shared again under a new id). */
+export function withBotShareAnswer(
+  shares: readonly BotShare[],
+  answer: BotShareAnswer,
+  at: number
+): readonly BotShare[] {
+  const share = botAccountShare(shares, answer.shareId, answer.accountId)
+  const field = answer.answer === 'accepted' ? 'acceptedAt' : 'declinedAt'
+  // The first answer stands.
+  if (!share || share.acceptedAt !== undefined) {
+    return shares
+  }
+  return shares.map((entry) => (entry === share ? { ...share, [field]: at } : entry))
+}
+
+/** The list with each account share whose teammate already reaches the bot marked accepted: shares
+ *  accepted before the owner's list kept it. */
+export function withBotSharesReached(
+  shares: readonly BotShare[],
+  reachedAccounts: ReadonlySet<string>,
+  at: number
+): readonly BotShare[] {
+  const unmarked = (share: BotShare) =>
+    share.kind === 'account' &&
+    share.acceptedAt === undefined &&
+    share.declinedAt === undefined &&
+    reachedAccounts.has(share.accountId)
+  return shares.some(unmarked)
+    ? shares.map((share) => (unmarked(share) ? { ...share, acceptedAt: at } : share))
+    : shares
+}
+
+/** A declined share offered again: the same person under a new share id, so the teammate is asked
+ *  afresh; the declined id is never offered again. */
+export function withBotShareRenewed(
+  shares: readonly BotShare[],
+  shareId: string,
+  mint: () => { shareId: string; addedAt: number }
+): readonly BotShare[] {
+  return shares.map((share) => {
+    if (share.shareId !== shareId || share.kind !== 'account' || share.declinedAt === undefined) {
+      return share
+    }
+    const { acceptedAt: _accepted, declinedAt: _declined, ...rest } = share
+    return { ...rest, ...mint() }
+  })
 }

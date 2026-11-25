@@ -294,11 +294,14 @@ describe('a phone asking its own computer for a key', () => {
         ok: true,
         result: await server.callAs(computer, method, params)
       }),
-      origin: () => 'https://cloud.example'
+      origin: () => 'https://cloud.example',
+      requests: () => [],
+      answer: async () => false
     })
     routeSharedHostsThrough({
       hosts: {
         ready: async () => {},
+        settled: async () => {},
         reaches: () => false,
         views: () => [],
         store,

@@ -9,7 +9,8 @@ export type SharedBotHostLink = SharedHostLink
 export const SHARED_HOSTS_HOLD_WHILE_AWAY: boolean = false
 
 /** A held message as Orca Cloud last reported it: waiting for the host, in its journal, or refused. */
-export type SharedBotHeldState = 'waiting' | 'delivered' | 'not_sent'
+export const SHARED_BOT_HELD_STATES = ['waiting', 'delivered', 'not_sent'] as const
+export type SharedBotHeldState = (typeof SHARED_BOT_HELD_STATES)[number]
 
 export type SharedBotHeldView = {
   clientMessageId: string
@@ -63,6 +64,20 @@ export function sharedBotHostView(
 export type SharedBotHostsState = {
   hosts: SharedBotHostView[]
   sharing: boolean | null
+  /** Shares that wait for this account's Accept or Decline: nothing of them is paired yet. Absent:
+   *  none. */
+  requests?: SharedBotRequestView[]
+}
+
+/** A share offered to this account, before it accepts: who shared what. */
+export type SharedBotRequestView = {
+  shareId: string
+  botId: string
+  botName: string
+  ownerName: string
+  /** The agent's one-line purpose, when its owner gave one. */
+  botPurpose?: string
+  avatarUrl?: string
 }
 
 // A new chat started while the host is away: its id until the host starts it from the first held message.
@@ -85,5 +100,10 @@ export const SHARED_BOT_HOST_ERRORS = {
   // Past the cloud's limit for one held message.
   tooLarge: 'shared_host_send_too_large',
   // The owner stopped sharing it: nothing is sent or held.
-  unshared: 'shared_host_unshared'
+  unshared: 'shared_host_unshared',
+  // The phone failed to take the call to the host at all: nothing was sent.
+  failed: 'shared_host_call_failed'
 } as const
+
+/** What a call to a host whose share ended answers, on the desktop and the phone. */
+export const SHARED_BOT_UNSHARED_MESSAGE = 'This agent is no longer shared.'

@@ -1,3 +1,4 @@
+import { ConnectorBotPurposes } from './connector-bot-purposes'
 import { getAppEnvironment } from '../../shared/app-lifecycle/app-environment'
 import { runtimeConversationHost } from '../external-conversations/external-conversation-runtime-host'
 import { getOrcaCloudAuthConfig } from '../orca-profiles/cloud-auth/profile-cloud-auth-config'
@@ -11,6 +12,8 @@ import { connectorBots, displayText, type ConnectorPlacesStore } from './connect
 import { connectorAccount, desktopConnectorTokenMint } from './connector-token-mint'
 import {
   acceptBotShare,
+  answerBotShare,
+  markReachedBotShares,
   putBotShareOffer,
   resolveBotShareInvite
 } from '../bots/bot-team-share-deliveries'
@@ -61,6 +64,9 @@ export function createConnectorCloud({
     return null
   }
   const environment = getAppEnvironment()
+  const purposes = new ConnectorBotPurposes({ bots: () => store.getBots?.() ?? [] })
+  // A share or a bot's edit is a bot write; a SOUL.md edit alone is read on the next one.
+  runtime.onBotsWritten(() => void purposes.refresh())
   const migratePlaces = botPlaceMigrationOnHello(
     {
       list: () => store.listAutomations(),
@@ -125,11 +131,13 @@ export function createConnectorCloud({
           runtime.bots.enabled(),
           // Asks the cloud only for an account with a bot on GitHub.
           (store.getBots?.() ?? []).some((bot) => bot.github) ? gitHubInstallations.ids() : [],
-          runtime.getConnectorCloud()?.cloudFeatures() ?? null
+          runtime.getConnectorCloud()?.cloudFeatures() ?? null,
+          (botId) => purposes.of(botId)
         ),
       beforeFirstHello: async () => {
         await Promise.all([
           runtime.machineNameReady(),
+          purposes.refresh(),
           (store.getBots?.() ?? []).some((bot) => bot.github)
             ? gitHubInstallations.firstAnswer(FIRST_GITHUB_ANSWER_WAIT_MS)
             : undefined
@@ -168,10 +176,13 @@ export function createConnectorCloud({
             },
             revokeDevices: async (botId, accountId) =>
               (await runtime.botShareDevices?.revokeBotShareDevices(botId, accountId)) ?? false,
-            putOffer: (...offer) => putBotShareOffer(runtime.getConnectorCloud(), ...offer)
+            putOffer: (...offer) => putBotShareOffer(runtime.getConnectorCloud(), ...offer),
+            markAccepted: (answer) => answerBotShare(runtime.bots, answer, Date.now())
           },
           delivery
         ),
+      shareDeclined: (delivery) =>
+        answerBotShare(runtime.bots, { ...delivery, answer: 'declined' }, Date.now()),
       shareSend: {
         hostKey: () => runtime.botShareDevices?.getE2EEPublicKey() ?? null,
         deliver: async (delivery) =>
@@ -182,6 +193,11 @@ export function createConnectorCloud({
       helloAnswered: (answer) => {
         webhooks.helloAnswered(answer)
         migratePlaces()
+        void markReachedBotShares(
+          runtime.bots,
+          runtime.botShareDevices?.reachedAccounts() ?? new Map(),
+          Date.now()
+        )
       },
       wantsConnection: () =>
         hostNeedsConnector(
@@ -201,6 +217,7 @@ export function createConnectorCloud({
         )
         store.onSettingsChanged?.(() => listener())
         gitHubInstallations.onChange(listener)
+        purposes.onChange(listener)
         webhooks.onConfirmed(listener)
       }
     }

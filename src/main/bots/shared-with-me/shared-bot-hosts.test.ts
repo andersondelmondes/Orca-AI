@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { afterEach, describe, expect, it } from 'vitest'
 import { NODE_RELAY_CLIENT_PLATFORM } from '../../../shared/remote-runtime/relay/client/node/node-relay-client-platform'
 import { SharedBotHosts } from './shared-bot-hosts'
+import { OrcaRuntimeService } from '../../runtime/orca-runtime'
 import { UNREADABLE_ANSWER } from '../../connector-cloud/connector-cloud-request'
 import { SharedBotHeldSends } from './shared-bot-held-sends'
 import { SharedBotHeldUploads } from './shared-bot-held-uploads'
@@ -53,7 +54,8 @@ function share(overrides: Partial<MineShare> = {}): MineShare {
     botName: 'Ivy',
     ownerName: 'Jinwoo Hong',
     hostOnline: true,
-    state: 'needs-accept',
+    // Accepted by this account (as a share from before Accept existed): it pairs without asking.
+    state: 'ready',
     held: [],
     ...overrides
   }
@@ -94,12 +96,14 @@ const offer = (inviteExpiresAt: number): NonNullable<SharedBotHostEntry['offer']
 function hosts(
   mine: () => MineShare[] | Promise<MineShare[]>,
   now: () => number,
-  hold: SharedBotsCloud['hold'] = async () => ({ ok: true, value: { status: 'held' } })
+  hold: SharedBotsCloud['hold'] = async () => ({ ok: true, value: { status: 'held' } }),
+  phoneSharesChanged?: () => void
 ) {
   const holds: [string, ConnectorShareHoldRequest][] = []
   const dir = mkdtempSync(join(tmpdir(), 'shared-bot-hosts-'))
   dirs.push(dir)
   const accepts: [string, ConnectorShareAcceptRequest][] = []
+  const declines: string[] = []
   let mineReads = 0
   // As the cloud does, a read lists every message it has taken, waiting unless `mine` says more.
   const taken: [string, string][] = []
@@ -125,6 +129,10 @@ function hosts(
       accepts.push([shareId, request])
       return { ok: true, value: { status: 'queued' } }
     },
+    decline: async (shareId) => {
+      declines.push(shareId)
+      return { ok: true, value: { status: 'declined' } }
+    },
     hold: async (shareId, request) => {
       holds.push([shareId, request])
       const answer = await hold(shareId, request)
@@ -141,11 +149,15 @@ function hosts(
     account: () => 'ada',
     cloud: () => cloud,
     platform: NODE_RELAY_CLIENT_PLATFORM,
-    publish: (state) => published.push(state.hosts.map((view) => view.shareId)),
+    // As the desktop's publish does (ipc/shared-bot-hosts.ts).
+    publish: (state) => {
+      published.push(state.hosts.map((view) => view.shareId))
+      service.phones.noteListed(phoneSharesChanged)
+    },
     homes: memory.homes,
     now
   })
-  return { service, accepts, holds, published, mineReads: () => mineReads, dir, memory }
+  return { service, accepts, declines, holds, published, mineReads: () => mineReads, dir, memory }
 }
 
 describe('shared agent pairing', () => {
@@ -161,6 +173,37 @@ describe('shared agent pairing', () => {
     await service.refresh()
     service.stop()
     expect(published.at(-1)).toEqual(['share-2'])
+  })
+
+  it('tells its phone through botsChanged of a share it reached, with no bots of its own', async () => {
+    const runtime = new OrcaRuntimeService()
+    expect(runtime.bots.list()).toEqual([])
+    const events: unknown[] = []
+    runtime.onClientEvent((event) => void (event.type === 'botsChanged' && events.push(event)))
+    const primitives = NODE_PAIRED_E2EE_PRIMITIVES
+    const hostKey = primitives.publicKeyToBase64(primitives.generateKeyPair().publicKey)
+    let current = share({ state: 'ready', hostKey })
+    const { service } = hosts(
+      () => [current],
+      () => 1_000,
+      undefined,
+      () => runtime.notifySharedBotsChanged()
+    )
+    await service.refresh()
+    // Listed but not reached: the phone can't get a key to it yet, so its list is unchanged.
+    expect(service.phones.phoneShares().shares).toEqual([])
+    const { deviceKey, sealKey } = service.store.get('share-1')!
+    // Expired invite, so nothing dials the relay.
+    const sealedOffer = sealBotTeamShareOffer(primitives, {
+      sealKey: sealKey.publicKeyB64,
+      offer: { ...offer(0), hostPublicKeyB64: hostKey }
+    })
+    current = { ...current, offers: [{ devicePublicKey: deviceKey.publicKeyB64, sealedOffer }] }
+    await service.refresh()
+    service.stop()
+    expect(service.phones.phoneShares().shares.map((listed) => listed.shareId)).toEqual(['share-1'])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(events).toEqual([{ type: 'botsChanged', kinds: ['bot'] }])
   })
 
   it('accepts again with the same device keys once the invite expired and the host is back', async () => {
@@ -342,6 +385,7 @@ describe('the held queue’s order', () => {
         cloud: () => ({
           mine: async () => UNREADABLE_ANSWER,
           accept: async () => UNREADABLE_ANSWER,
+          decline: async () => ({ ok: true, value: { status: 'declined' } }),
           hold: async () => UNREADABLE_ANSWER
         }),
         now: () => 0,
@@ -386,6 +430,7 @@ describe('a held message and a cloud read that cross', () => {
         cloud: () => ({
           mine: async () => UNREADABLE_ANSWER,
           accept: async () => UNREADABLE_ANSWER,
+          decline: async () => ({ ok: true, value: { status: 'declined' } }),
           hold: () =>
             new Promise((resolve) => {
               accept = () => resolve({ ok: true, value: { status: 'held' } })
@@ -434,6 +479,7 @@ describe('a held message and a cloud read that cross', () => {
       cloud: () => ({
         mine: async () => ({ ok: true, value: { v: 1, shares: [share({ hostKey: HOST_KEY })] } }),
         accept: async () => ({ ok: true, value: { status: 'queued' } }),
+        decline: async () => ({ ok: true, value: { status: 'declined' } }),
         hold: async () => ({ ok: true, value: { status: 'held' } })
       }),
       platform: NODE_RELAY_CLIENT_PLATFORM,
@@ -462,6 +508,7 @@ describe('a shared agent’s home on this computer', () => {
       cloud: () => ({
         mine: async () => ({ ok: true, value: { v: 1, shares } }),
         accept: async () => ({ ok: true, value: { status: 'queued' } }),
+        decline: async () => ({ ok: true, value: { status: 'declined' } }),
         hold: async () => ({ ok: true, value: { status: 'held' } })
       }),
       platform: NODE_RELAY_CLIENT_PLATFORM,

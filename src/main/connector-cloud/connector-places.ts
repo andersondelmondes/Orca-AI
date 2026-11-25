@@ -18,7 +18,7 @@ import {
 } from '../../shared/bot-types'
 import { GITHUB_ID_PATTERN } from '../../shared/connector-bot-github-contract'
 import type { ExternalConversationBot } from '../../shared/connectors/external-conversation-link'
-import { BOT_MAX_SHARES, type BotShare } from '../../shared/bots/bot-team-shares'
+import { BOT_MAX_SHARES, botShareUsable, type BotShare } from '../../shared/bots/bot-team-shares'
 import {
   ConnectorBotShareSchema,
   type ConnectorBotShare
@@ -64,6 +64,8 @@ export const BOT_HELLO_BUDGET_BYTES = Math.floor(
 // Absent when there are none, which the cloud reads as not shared.
 function sharedWith(shares: readonly BotShare[] | undefined): { sharedWith?: ConnectorBotShare[] } {
   const people = (shares ?? [])
+    // A declined share is not shared: the cloud hears nothing of it.
+    .filter((share) => share.kind !== 'account' || botShareUsable(share))
     .map((share) =>
       share.kind === 'account'
         ? { shareId: share.shareId, accountId: share.accountId }
@@ -72,6 +74,10 @@ function sharedWith(shares: readonly BotShare[] | undefined): { sharedWith?: Con
     .filter((share) => ConnectorBotShareSchema.safeParse(share).success)
     .slice(0, BOT_MAX_SHARES)
   return people.length > 0 ? { sharedWith: people } : {}
+}
+
+function purposeField(botPurpose: string | undefined): { botPurpose?: string } {
+  return botPurpose ? { botPurpose } : {}
 }
 
 /** A bot's GitHub people go on each installation, so a bot over its share drops installations from the end. */
@@ -97,7 +103,9 @@ export function connectorBots(
   botsEnabled = true,
   gitHubInstallationIds: readonly string[] = [],
   /** What the cloud's last hello answer listed; null before one. */
-  cloudFeatures: ReadonlySet<string> | null = null
+  cloudFeatures: ReadonlySet<string> | null = null,
+  /** A shared bot's purpose (`ConnectorBotPurposes`); absent, none goes. */
+  purposeOf: (botId: string) => string | undefined = () => undefined
 ): ConnectorBot[] {
   const {
     maxHelloBots,
@@ -205,7 +213,8 @@ export function connectorBots(
             )
           : [])
       ]),
-      ...sharedWith(bot.shares)
+      ...sharedWith(bot.shares),
+      ...purposeField(purposeOf(bot.id))
     }))
     .map(withinBotBudget)
 }

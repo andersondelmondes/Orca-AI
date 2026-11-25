@@ -7,6 +7,7 @@ import {
   BotShareProvisionedPhone,
   SHARED_BOTS_PHONE_ERRORS,
   type SharedBotPhoneGrant,
+  type SharedBotPhoneRequest,
   type SharedBotsPhoneList,
   type SharedBotsPhoneProvisionParams
 } from '../../../shared/bots/bot-share-phone'
@@ -28,10 +29,25 @@ export type SharedBotPhoneGrantsDeps = {
   request: (entry: SharedBotHostEntry, method: string, params: unknown) => Promise<RpcResponse>
   /** Orca Cloud's connector origin, which the phone holds messages at; null without a cloud. */
   origin: () => string | null
+  /** The shares offered to the account, and its Accept or Decline of one, which phones show too. */
+  requests: () => readonly SharedBotPhoneRequest[]
+  answer: (shareId: string, accept: boolean) => Promise<boolean>
 }
 
 export class SharedBotPhoneGrants {
+  private noted = JSON.stringify({ shares: [], requests: [] } satisfies SharedBotsPhoneList)
+
   constructor(private readonly deps: SharedBotPhoneGrantsDeps) {}
+
+  /** Calls `changed` when `phoneShares` differs from the list last noted: phones read it again
+   *  only when told. */
+  noteListed(changed: (() => void) | undefined): void {
+    const listed = JSON.stringify(this.phoneShares())
+    if (listed !== this.noted) {
+      this.noted = listed
+      changed?.()
+    }
+  }
 
   /** The shared agents this computer has reached, which a phone can get a key to. */
   phoneShares(): SharedBotsPhoneList {
@@ -42,8 +58,14 @@ export class SharedBotPhoneGrants {
         botName: entry.botName,
         ownerName: entry.ownerName,
         environmentId: entry.environmentId
-      }))
+      })),
+      requests: [...this.deps.requests()]
     }
+  }
+
+  /** The phone's Accept or Decline, as this computer's own. */
+  answer(shareId: string, accept: boolean): Promise<boolean> {
+    return this.deps.answer(shareId, accept)
   }
 
   /** Asks the host for the phone's key and answers with its grant; a key this phone had before on

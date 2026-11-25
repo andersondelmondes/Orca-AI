@@ -2,6 +2,7 @@
 // accept for one, and a message held for a host that is away.
 import {
   ConnectorShareAcceptSchema,
+  ConnectorShareDeclineSchema,
   ConnectorShareHoldSchema,
   ConnectorSharesMineSchema,
   sharePath,
@@ -19,6 +20,8 @@ export function sharedBotsCloud(cloud: Pick<ConnectorCloud, 'call'>) {
       }),
     accept: (shareId: string, request: ConnectorShareAcceptRequest) =>
       cloud.call(sharePath(shareId, 'accept'), request, ConnectorShareAcceptSchema),
+    decline: (shareId: string) =>
+      cloud.call(sharePath(shareId, 'decline'), { v: 1 }, ConnectorShareDeclineSchema),
     hold: (shareId: string, request: ConnectorShareHoldRequest) =>
       cloud.call(sharePath(shareId, 'messages'), request, ConnectorShareHoldSchema)
   }
@@ -60,6 +63,16 @@ export class CloudSharesSupport {
     }
     this.value = sharesSupported(answer, this.value)
     return answer
+  }
+
+  /** The account's shares an answer gives: its list; none once refused as signed out with no account
+   *  signed in; null (keep what is kept) for anything else, a fenced or quitting connector's same
+   *  refusal while the account stays, or any error or no answer. */
+  sharesIn(answer: Awaited<ReturnType<SharedBotsCloud['mine']>> | null) {
+    if (answer?.ok) {
+      return answer.value.shares
+    }
+    return answer?.error === 'signed_out' && this.account() === null ? [] : null
   }
 }
 
