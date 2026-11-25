@@ -1,0 +1,156 @@
+import { useEffect, useState } from 'react'
+import {
+  loadLocalImageSrc,
+  useLocalImageSrc
+} from '@/components/editor/document-images/useLocalImageSrc'
+import { chatImageAccess } from '@/lib/files/access/local-file-access'
+import { removeImageWithReferences } from '../../composer/editor/native-chat-composer-image-references'
+import { nativeChatComposerDraftSaved } from '../../drafts/native-chat-composer-draft-saved'
+import {
+  appendToNativeChatComposerDraft,
+  readNativeChatComposerDraft
+} from '../../drafts/native-chat-composer-draft-store'
+import {
+  clearNativeChatAttachmentNotes,
+  readNativeChatAttachmentNotes,
+  setNativeChatAttachmentNotes,
+  type NativeChatAttachmentNotes
+} from './native-chat-attachment-notes'
+
+const inDraft = (scopeKey: string, id: string): boolean =>
+  readNativeChatComposerDraft(scopeKey).images.some((entry) => entry.id === id)
+
+/** Takes an image out of the draft and its notes with it, returning what puts both back as they were
+ *  (false when the notes couldn't be saved). With `keepNotesUntilSaved` (a marked copy replaces it),
+ *  its notes stay saved until the draft without it is, so a restart before then recovers it whole. */
+export function takeNativeChatNotedImage(
+  scopeKey: string,
+  id: string,
+  keepNotesUntilSaved = false
+): () => boolean {
+  const image = readNativeChatComposerDraft(scopeKey).images.find((entry) => entry.id === id)
+  const notes = readNativeChatAttachmentNotes(scopeKey, id)
+  removeImageWithReferences(scopeKey, null, id)
+  if (keepNotesUntilSaved) {
+    void nativeChatComposerDraftSaved(scopeKey).then((saved) => {
+      if (saved && !inDraft(scopeKey, id)) {
+        clearNativeChatAttachmentNotes(scopeKey, [id], false)
+      }
+    })
+  } else {
+    clearNativeChatAttachmentNotes(scopeKey, [id])
+  }
+  return () => {
+    if (image && !inDraft(scopeKey, id)) {
+      appendToNativeChatComposerDraft(scopeKey, { text: '', images: [image] })
+    }
+    return notes ? setNativeChatAttachmentNotes(scopeKey, id, notes) : true
+  }
+}
+
+/** A marked copy takes this chip's place, but only while the chip is still in the draft: one sent or
+ *  replaced meanwhile (in another viewer or window) vetoes the copy. */
+export function replaceNativeChatNotedImage(scopeKey: string, id: string): (() => boolean) | false {
+  return inDraft(scopeKey, id) ? takeNativeChatNotedImage(scopeKey, id, true) : false
+}
+
+// Marked images reopened in a viewer, per chat, with how many viewers have each open. They stay in
+// the draft, so a reload keeps them, but the message box doesn't send them until every viewer
+// editing them has swapped in its edited copy or closed.
+const editingImages = new Map<string, Map<string, number>>()
+
+/** Flags a reopened marked image as being edited; the returned function ends this viewer's edit. */
+export function markNativeChatNotedImageEditing(scopeKey: string, id: string): () => void {
+  const ids = editingImages.get(scopeKey) ?? new Map<string, number>()
+  ids.set(id, (ids.get(id) ?? 0) + 1)
+  editingImages.set(scopeKey, ids)
+  let ended = false
+  return () => {
+    if (ended) {
+      return
+    }
+    ended = true
+    const left = (ids.get(id) ?? 1) - 1
+    if (left > 0) {
+      ids.set(id, left)
+    } else {
+      ids.delete(id)
+    }
+    if (ids.size === 0 && editingImages.get(scopeKey) === ids) {
+      editingImages.delete(scopeKey)
+    }
+  }
+}
+
+/** Whether the draft holds a marked image whose notes are open for editing. */
+export function nativeChatDraftHasEditingImage(scopeKey: string): boolean {
+  const ids = editingImages.get(scopeKey)
+  return (
+    ids !== undefined &&
+    ids.size > 0 &&
+    readNativeChatComposerDraft(scopeKey).images.some(({ id }) => ids.has(id))
+  )
+}
+
+let cleanSequence = 0
+
+/** A marked image whose notes were all deleted goes back to the clean original it was made from. */
+export function restoreNativeChatCleanImage(
+  scopeKey: string,
+  id: string,
+  notes: NativeChatAttachmentNotes
+): () => void {
+  const putBack = takeNativeChatNotedImage(scopeKey, id)
+  const path = notes.source.path
+  if (!path) {
+    return putBack
+  }
+  cleanSequence += 1
+  const cleanId = `notes-clean-${Date.now().toString(36)}-${cleanSequence}`
+  const connectionId = notes.source.connectionId
+  appendToNativeChatComposerDraft(scopeKey, {
+    text: '',
+    images: [{ id: cleanId, path, ...(connectionId ? { connectionId } : {}) }]
+  })
+  return () => {
+    removeImageWithReferences(scopeKey, null, cleanId)
+    putBack()
+  }
+}
+
+/** The clean original a marked image was made from, read only while its viewer is open: its source,
+ *  or `failed` once it can't be read (moved, deleted, unreachable). */
+export function useNativeChatNotesOriginal(
+  notes: NativeChatAttachmentNotes | null,
+  active: boolean,
+  readContext: Parameters<typeof useLocalImageSrc>[3]
+): { src: string | undefined; failed: boolean } {
+  const path = active ? notes?.source.path : undefined
+  const connectionId = notes?.source.connectionId
+  const src = useLocalImageSrc(path, path ?? '', connectionId, readContext, chatImageAccess())
+  const [failedPath, setFailedPath] = useState<string | null>(null)
+  useEffect(() => {
+    if (!path) {
+      return
+    }
+    let live = true
+    const fail = (): void => {
+      if (live) {
+        setFailedPath(path)
+      }
+    }
+    loadLocalImageSrc(path, path, connectionId, readContext, chatImageAccess())
+      .then((url) => {
+        if (!url) {
+          fail()
+        }
+      })
+      .catch(fail)
+    return () => {
+      live = false
+    }
+  }, [connectionId, path, readContext])
+  // Notes on media with no file path (a URL) have no original to read: the marked copy is view-only.
+  const noOriginal = active && notes !== null && !notes.source.path
+  return { src, failed: noOriginal || (path !== undefined && failedPath === path && !src) }
+}
