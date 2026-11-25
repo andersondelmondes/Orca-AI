@@ -25,7 +25,7 @@ afterEach(() => {
 })
 
 it.each(['compact', 'full'] as const)(
-  'keeps Delete and its shortcut on the card header after opening the menu from a %s agent row',
+  'keeps Delete and its shortcut on the card header after opening the agent menu from a %s agent row',
   (mode) => {
     const worktree = makeWorktree({ id: `${TEST_REPO.id}::/sample`, repoId: TEST_REPO.id })
     const tab: Tab = {
@@ -81,10 +81,12 @@ it.each(['compact', 'full'] as const)(
     expect(agentRowChild).not.toBeNull()
     fireEvent.contextMenu(agentRowChild!)
     const rowMenu = within(screen.getByRole('menu'))
+    // The row opens its agent's menu; workspace actions sit under Workspace without removal.
+    expect(rowMenu.getByRole('menuitem', { name: 'Open' })).not.toBeNull()
+    expect(rowMenu.getByRole('menuitem', { name: /^Workspace/ })).not.toBeNull()
     expect(
       rowMenu.queryByRole('menuitem', { name: /^(Delet|Remove (Workspace|Project))/ })
     ).toBeNull()
-    const rowSeparators = rowMenu.getAllByRole('separator').length
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
 
     const title = container.querySelector('[data-worktree-title-inline-rename]')
@@ -95,6 +97,5 @@ it.each(['compact', 'full'] as const)(
     expect(deleteItem.querySelector('[data-slot="dropdown-menu-shortcut"]')?.textContent).toMatch(
       /^(⌘⇧⌫|Ctrl\+⇧\+Backspace)$/
     )
-    expect(headerMenu.getAllByRole('separator')).toHaveLength(rowSeparators + 1)
   }
 )
