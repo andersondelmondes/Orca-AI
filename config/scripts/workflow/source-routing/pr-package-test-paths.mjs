@@ -203,7 +203,8 @@ export const WINDOWS_BOUNDARY_TESTS = [
   'src/main/orca-profiles/profile-index-store.test.ts',
   'src/shared/secure-storage/secure-path-windows-acl.win32.test.ts',
   'src/main/runtime/rpc/server/pairing/unreadable-secret-store-preservation.win32.test.ts',
-  'src/main/browser/network/tunnels/remote-browser-socks-client-owner.test.ts'
+  'src/main/browser/network/tunnels/remote-browser-socks-client-owner.test.ts',
+  'src/shared/perforce/workspace-copy/workspace-copy-remove-lock.test.ts'
 ]
 
 const WINDOWS_BOUNDARY_PREFIXES = [
