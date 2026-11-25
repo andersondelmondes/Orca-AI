@@ -6,6 +6,8 @@ import { StyleSheet, View } from 'react-native'
 import { MobileNativeChatView, type MobileNativeChatInputLockReason } from './MobileNativeChatView'
 import { useMobileNativeChatProjection } from './transcript/projection/use-mobile-native-chat-projection'
 import { nativeChatDockedTaskList } from '../../../../src/shared/native-chat/input/task-lists/native-chat-task-list-state'
+
+const docked = nativeChatDockedTaskList
 import type { MobileNativeChatImageAttachments } from './composer/attachments/use-mobile-native-chat-image-attachments'
 import type { MobileNativeChatController } from './mobile-native-chat-controller-contract'
 import { useMobileNativeChatFiles } from './links/use-mobile-native-chat-files'
@@ -136,7 +138,7 @@ function MobileNativeChatOverlayContent({
     ],
     controller.nativeChatShowsCiResultLines
   )
-  const taskList = useMemo(() => nativeChatDockedTaskList(folded), [folded])
+  const taskList = useMemo(() => docked(folded, session.taskList), [folded, session.taskList])
   const streaming = controller.nativeChatStreamingText ?? null
   const queued = controller.nativeChatQueued
   const composerTray = useMobileNativeChatComposerTray({
