@@ -21,11 +21,12 @@ export const toolStyles = themedStyleSheet(() => ({
     gap: spacing.sm,
     marginTop: spacing.xs
   },
+  // A 44 pt row: the whole line is the target.
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 3
+    minHeight: 44
   },
   headerSentence: {
     flexShrink: 1,
@@ -54,7 +55,7 @@ export const toolStyles = themedStyleSheet(() => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    minHeight: 26
+    minHeight: 44
   },
   iconSlot: {
     alignItems: 'center',
