@@ -1,3 +1,11 @@
+import { DEFAULT_CODEX_REQUEST_TIMEOUT_MS } from '../../app-server/codex-app-server-connection'
+import {
+  restateKeptCodexBackgroundWork,
+  seedCarriedKeptCodexCommands,
+  seedKeptCodexCommandOutput,
+  seedKeptCodexTurnOrdinals,
+  type KeptCodexTurn
+} from '../threads/codex-kept-turn-ordinals'
 import { withStructuredHistoryInvocation } from '../../../native-chat/agent-session-wire/acquisition/structured-agent-session-history-invocation'
 import type { AgentSessionAccountKind } from '../../../../shared/agent-session/failures/agent-session-availability'
 import {
@@ -129,7 +137,10 @@ export async function openCodexStructuredSession(
   start.setPrimaryThreadId(opened.threadId)
   attempt.window.appliedSettings.observe(opened)
   const returnedTurns = Array.isArray(opened.thread?.turns) ? opened.thread.turns : []
+  // A kept app-server's output since the last ack is replayed in order instead of history catch-up.
+  const keptRunning = connection.relay?.reattached === true
   if (
+    !keptRunning &&
     translator &&
     input.events &&
     (returnedTurns.length > 0 || (launch.resumeThreadId !== null && !opened.supersededThreadId))
@@ -152,6 +163,39 @@ export async function openCodexStructuredSession(
           ...(deps.requestTimeoutMs !== undefined ? { timeoutMs: deps.requestTimeoutMs } : {}),
           ...(deps.logger ? { logger: deps.logger } : {})
         })
+      ),
+      openInput.signal
+    )
+    current()
+  }
+  let keptTurns: readonly KeptCodexTurn[] = []
+  if (keptRunning && translator) {
+    keptTurns = await waitForPromiseWithSignal(
+      seedKeptCodexTurnOrdinals({
+        connection,
+        translator,
+        threadId: opened.threadId,
+        timeoutMs: deps.requestTimeoutMs ?? DEFAULT_CODEX_REQUEST_TIMEOUT_MS,
+        onError: (threadId, error) =>
+          deps.logger?.warn('numbering a kept turn from history failed', {
+            scope: 'codex-kept-turn-ordinals',
+            sessionId,
+            threadId,
+            error
+          })
+      }),
+      openInput.signal
+    )
+    current()
+    const journal = input.events?.journalHistory?.() ?? null
+    await waitForPromiseWithSignal(
+      seedKeptCodexCommandOutput(translator, journal, keptTurns).then(() =>
+        seedCarriedKeptCodexCommands(
+          translator,
+          journal,
+          keptTurns,
+          connection.relay?.openWork()?.command
+        )
       ),
       openInput.signal
     )
@@ -221,6 +265,13 @@ export async function openCodexStructuredSession(
   for (const event of attempt.window.drain()) {
     event()
   }
+  restateKeptCodexBackgroundWork(
+    session.backgroundTasks,
+    keptTurns,
+    connection.relay?.endedWork()?.command,
+    connection.relay?.openWork()?.command
+  )
+  connection.relay?.releaseOutput()
   current()
   acquisitions.deleteIfCurrent(sessionId, attempt)
   session.skillReport = new CodexSkillReport({

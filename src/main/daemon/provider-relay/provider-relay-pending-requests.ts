@@ -1,4 +1,5 @@
 import type { ProviderRelayRecord } from '../protocol/daemon-provider-relay-protocol'
+import { ProviderRelayAnsweredRequests } from './provider-relay-answered-requests'
 import {
   leadingJsonEnvelope,
   type LeadingProperty
@@ -50,7 +51,7 @@ const MAX_CLIENT_LINE_CHARS = 256 * 1024 * 1024
 /** JSON may spell a key or method with escapes (`"m\u0065thod"`, `\u002f`); such lines take the slow path. */
 const ESCAPED_LETTER = /\\u00[2-7][0-9a-fA-F]/
 
-function mayHideKey(line: string): boolean {
+export function mayHideKey(line: string): boolean {
   return line.includes('\\u00') && ESCAPED_LETTER.test(line)
 }
 
@@ -62,9 +63,8 @@ function mayCarryKey(line: string): boolean {
 /** A held request and the record it was when its answer was seen. */
 type AnsweredRequest = { key: string; record: ProviderRelayRecord }
 
-function controlId(value: unknown): string | null {
-  return typeof value === 'string' ? `c:${value}` : null
-}
+const controlId = (value: unknown): string | null =>
+  typeof value === 'string' ? `c:${value}` : null
 
 /**
  * Agent→client requests still unanswered (JSON-RPC server requests, Claude `control_request`s),
@@ -79,6 +79,17 @@ export class ProviderRelayPendingRequests {
   private skippingClientLine = false
   maxClientRequestId: number | null = null
   initializeResult: string | null = null
+  /** Client request methods that are work until answered (a root turn no agent line opens). */
+  workMethods: ReadonlySet<string> = new Set()
+  /** Those requests still unanswered, by id. */
+  readonly working = new Set<string>()
+
+  /** Spooled requests already answered, resolved or replaced, so a replay never asks again. */
+  readonly answered: ProviderRelayAnsweredRequests
+
+  constructor(ackedSeq: () => number = () => 0) {
+    this.answered = new ProviderRelayAnsweredRequests(ackedSeq)
+  }
 
   get size(): number {
     return this.pending.size
@@ -90,6 +101,7 @@ export class ProviderRelayPendingRequests {
   }
 
   clear(): void {
+    this.working.clear()
     this.pending.clear()
     this.pendingChars = 0
   }
@@ -110,6 +122,7 @@ export class ProviderRelayPendingRequests {
     if (held) {
       this.pending.delete(key)
       this.pendingChars -= held.line.length
+      this.answered.add(held.seq)
     }
   }
 
@@ -144,9 +157,20 @@ export class ProviderRelayPendingRequests {
       } else if (key) {
         this.release(key)
       }
-    } else if (this.awaitingInitialize && this.responseKey(message) === this.initializeKey) {
-      this.initializeResult = record.line
+    } else {
+      const key = this.responseKey(message)
+      if (this.awaitingInitialize && key === this.initializeKey) {
+        this.initializeResult = record.line
+      }
+      if (key) {
+        this.working.delete(key)
+      }
     }
+  }
+
+  /** An answer this table waits for: the first initialize's, or a work request's. */
+  private get awaitingAnswer(): boolean {
+    return this.awaitingInitialize || this.working.size > 0
   }
 
   private get awaitingInitialize(): boolean {
@@ -181,7 +205,7 @@ export class ProviderRelayPendingRequests {
     if (typeof method === 'string') {
       return method === RESOLVED_METHOD || field('id') !== undefined
     }
-    if (this.awaitingInitialize && (field('result') || field('error'))) {
+    if (this.awaitingAnswer && (field('result') || field('error'))) {
       return true
     }
     return (
@@ -198,7 +222,7 @@ export class ProviderRelayPendingRequests {
         line.includes(RESOLVED_METHOD) ||
         line.includes(RESOLVED_METHOD_ESCAPED))
     const maybeAnswer =
-      this.awaitingInitialize && (line.includes('"result"') || line.includes('"error"'))
+      this.awaitingAnswer && (line.includes('"result"') || line.includes('"error"'))
     return maybeRequest || maybeAnswer || line.includes('control_') || mayHideKey(line)
   }
 
@@ -253,6 +277,10 @@ export class ProviderRelayPendingRequests {
     if (typeof message.method === 'string') {
       if (typeof message.id === 'number' && Number.isSafeInteger(message.id)) {
         this.maxClientRequestId = Math.max(this.maxClientRequestId ?? message.id, message.id)
+      }
+      const id = rpcId(message.id)
+      if (id && this.workMethods.has(message.method) && this.working.size < MAX_PENDING_REQUESTS) {
+        this.working.add(id)
       }
       if (message.method === 'initialize' && this.initializeKey === null) {
         this.initializeKey = rpcId(message.id)

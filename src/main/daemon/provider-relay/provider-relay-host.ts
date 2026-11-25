@@ -1,23 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, readdir, unlink } from 'node:fs/promises'
-import { basename, isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 import type { spawnManagedProviderProcess } from '../../provider-process/managed-provider-process'
-import type {
-  ProviderRelayAttachResult,
-  ProviderRelayListResult,
-  ProviderRelaySpawnResult,
-  ProviderRelaySpawnSpec
+import {
+  RELAY_CUT_KEY_MAX_CHARS,
+  RELAY_CUT_KEYS_MAX,
+  type ProviderRelayAttachResult,
+  type ProviderRelayListResult,
+  type ProviderRelaySpawnResult,
+  type ProviderRelaySpawnSpec
 } from '../protocol/daemon-provider-relay-protocol'
 import { ProviderRelay } from './provider-relay'
+import { ProviderRelayDetachedCap } from './provider-relay-detached-cap'
+import { ProviderRelayEndedRetention } from './provider-relay-ended-retention'
 import type { ProviderRelayStream } from './provider-relay-attachment'
 import { waitAtMost } from './provider-relay-bounded-wait'
+import { readProviderRelayDetachPolicy } from './provider-relay-idle-stop'
+import { validProviderRelaySpawnSpec } from './provider-relay-spawn-spec'
 
 type SpawnManaged = typeof spawnManagedProviderProcess
 
-const PROVIDER_OWNER_EXECUTABLE = 'orca-provider-exec'
 const MAX_CHAT_KEY_CHARS = 1024
-/** An ended relay nobody collects is dropped after this, so it never holds the daemon or its spool forever. */
-const ENDED_RELAY_RETENTION_MS = 24 * 60 * 60 * 1000
 /** Relay cleanup is disk work; shutdown waits for it only this long. */
 const DISPOSE_WAIT_MS = 3000
 const RELAY_SPOOL_NAME = /^r-(\d+)-[0-9a-f-]{36}\.ndjson(?:\.line|\.compact)?$/
@@ -33,29 +36,6 @@ type RelayHostOptions = {
   log: (event: string, details?: Record<string, unknown>) => void
 }
 
-const launchString = (value: unknown): value is string =>
-  typeof value === 'string' && !value.includes('\0')
-
-function validSpec(spec: ProviderRelaySpawnSpec | undefined): spec is ProviderRelaySpawnSpec {
-  return (
-    !!spec &&
-    launchString(spec.command) &&
-    spec.command.length > 0 &&
-    Array.isArray(spec.args) &&
-    spec.args.every(launchString) &&
-    launchString(spec.cwd) &&
-    isAbsolute(spec.cwd) &&
-    launchString(spec.ownerExecutable) &&
-    isAbsolute(spec.ownerExecutable) &&
-    basename(spec.ownerExecutable) === PROVIDER_OWNER_EXECUTABLE &&
-    !!spec.env &&
-    typeof spec.env === 'object' &&
-    Object.entries(spec.env).every(([key, value]) => launchString(key) && launchString(value)) &&
-    (spec.appVersion === undefined || typeof spec.appVersion === 'string') &&
-    (spec.entryPath === undefined || typeof spec.entryPath === 'string')
-  )
-}
-
 /** Only a proven-absent pid (ESRCH) frees a spool; "can't tell" keeps it. */
 function ownerProvenGone(pid: number): boolean {
   try {
@@ -69,7 +49,14 @@ function ownerProvenGone(pid: number): boolean {
 /** Agents this daemon owns for chats; nothing here runs until a client's first `relaySpawn`. */
 export class ProviderRelayHost {
   private readonly relays = new Map<string, ProviderRelay>()
-  private readonly expiries = new Map<ProviderRelay, ReturnType<typeof setTimeout>>()
+  private readonly retention = new ProviderRelayEndedRetention<ProviderRelay>((relay) => {
+    if (!relay.live) {
+      this.remove(relay)
+    }
+  })
+  private readonly cap = new ProviderRelayDetachedCap((event, details) =>
+    this.options.log(event, details)
+  )
   private readonly platform: NodeJS.Platform
   private ready: Promise<{ directory: string; spawn: SpawnManaged }> | null = null
   private disposed = false
@@ -99,16 +86,19 @@ export class ProviderRelayHost {
 
   async spawn(
     spec: ProviderRelaySpawnSpec | undefined,
-    chatKey: unknown
+    chatKey: unknown,
+    policy?: unknown,
+    agent?: unknown
   ): Promise<ProviderRelaySpawnResult> {
     if (!this.supported || this.disposed || !this.options.acceptsWork()) {
       return { refused: 'unavailable' }
     }
-    if (!validSpec(spec) || typeof chatKey !== 'string' || chatKey.length > MAX_CHAT_KEY_CHARS) {
+    if (
+      !validProviderRelaySpawnSpec(spec) ||
+      typeof chatKey !== 'string' ||
+      chatKey.length > MAX_CHAT_KEY_CHARS
+    ) {
       throw new Error('Invalid relay launch')
-    }
-    if (this.staleFor(spec)) {
-      return { refused: 'stale-bundle' }
     }
     const { directory, spawn } = await this.prepare()
     if (this.disposed || !this.options.acceptsWork()) {
@@ -132,16 +122,22 @@ export class ProviderRelayHost {
     const relay = new ProviderRelay({
       relayId,
       chatKey,
+      agent: typeof agent === 'string' && agent.length <= MAX_CHAT_KEY_CHARS ? agent : null,
       managed,
       spoolPath: join(directory, `${relayId}.ndjson`),
       log: this.options.log,
       onSettled: () => {
         this.removeIfFinished(relay)
         this.expireWhenAbandoned(relay)
+        this.cap.forget(relay)
         this.options.onLiveCountChanged()
       },
-      onDetached: () => this.expireWhenAbandoned(relay)
+      onDetached: () => {
+        this.expireWhenAbandoned(relay)
+        this.cap.detached(relay)
+      }
     })
+    relay.idleStopPolicy.configure(readProviderRelayDetachPolicy(policy))
     this.relays.set(relayId, relay)
     await managed.child.ready?.catch(() => {})
     // Shutdown during the launch closes this agent; the caller must not be told it runs.
@@ -169,13 +165,16 @@ export class ProviderRelayHost {
     clientId: string,
     stream: ProviderRelayStream,
     relayId: unknown,
-    fromSeq: unknown
+    fromSeq: unknown,
+    policy?: unknown
   ): Promise<ProviderRelayAttachResult> {
     // An ended relay's expiry keeps running through attaches: it lives at most a day after it ends.
     const relay = this.requireRelay(relayId)
+    relay.idleStopPolicy.configure(readProviderRelayDetachPolicy(policy))
     try {
       return await relay.attach(clientId, stream, typeof fromSeq === 'number' ? fromSeq : 0)
     } finally {
+      this.cap.forget(relay)
       // An ended relay with nothing left to ack is done once a client has seen its outcome.
       this.removeIfFinished(relay)
     }
@@ -188,13 +187,25 @@ export class ProviderRelayHost {
     this.requireAttached(clientId, relayId).write(data)
   }
 
-  ack(clientId: string, relayId: unknown, seq: unknown, keepFrom?: unknown): void {
+  ack(
+    clientId: string,
+    relayId: unknown,
+    seq: unknown,
+    keepFrom?: unknown,
+    flags?: { cut?: unknown; held?: unknown; cutKeys?: unknown }
+  ): { ackedThrough: number; truncatedThrough: number } {
     const relay = this.requireAttached(clientId, relayId)
-    relay.ack(
+    const acked = relay.ack(
       typeof seq === 'number' ? seq : 0,
-      typeof keepFrom === 'number' ? keepFrom : undefined
+      typeof keepFrom === 'number' ? keepFrom : undefined,
+      {
+        cut: flags?.cut === true,
+        held: flags?.held === true,
+        cutKeys: flags?.cutKeys === undefined ? undefined : relayCutKeys(flags.cutKeys)
+      }
     )
     this.removeIfFinished(relay)
+    return acked
   }
 
   /** A closed chat wants nothing more from its agent, so the ended relay goes with its spool. */
@@ -206,8 +217,8 @@ export class ProviderRelayHost {
     }
   }
 
-  async detach(clientId: string, relayId: unknown): Promise<void> {
-    await this.requireRelay(relayId).detach(clientId)
+  async detach(clientId: string, relayId: unknown, policy?: unknown): Promise<void> {
+    await this.requireRelay(relayId).detach(clientId, readProviderRelayDetachPolicy(policy))
   }
 
   list(): ProviderRelayListResult {
@@ -222,21 +233,11 @@ export class ProviderRelayHost {
 
   private async disposeOnce(): Promise<void> {
     this.disposed = true
-    for (const timer of this.expiries.values()) {
-      clearTimeout(timer)
-    }
-    this.expiries.clear()
+    this.cap.stop()
+    this.retention.dispose()
     const relays = [...this.relays.values()]
     this.relays.clear()
     await waitAtMost(Promise.all(relays.map((relay) => relay.dispose())), DISPOSE_WAIT_MS)
-  }
-
-  private staleFor(spec: ProviderRelaySpawnSpec): boolean {
-    const { appVersion, entryPath } = this.options
-    return (
-      (appVersion ?? undefined) !== spec.appVersion ||
-      (entryPath !== null && entryPath !== spec.entryPath)
-    )
   }
 
   private requireRelay(relayId: unknown): ProviderRelay {
@@ -266,7 +267,7 @@ export class ProviderRelayHost {
   }
 
   private remove(relay: ProviderRelay): void {
-    this.clearExpiry(relay)
+    this.retention.clear(relay)
     if (this.registered(relay)) {
       this.relays.delete(relay.relayId)
       void relay.dispose()
@@ -277,24 +278,8 @@ export class ProviderRelayHost {
   private expireWhenAbandoned(relay: ProviderRelay): void {
     // A late stdout end on an already removed relay must not pin it with a timer.
     // Attached or not: a client that stops acking can't keep an ended agent's output forever.
-    if (!this.registered(relay) || relay.live || this.expiries.has(relay)) {
-      return
-    }
-    const timer = setTimeout(() => {
-      this.expiries.delete(relay)
-      if (!relay.live) {
-        this.remove(relay)
-      }
-    }, ENDED_RELAY_RETENTION_MS)
-    timer.unref?.()
-    this.expiries.set(relay, timer)
-  }
-
-  private clearExpiry(relay: ProviderRelay): void {
-    const timer = this.expiries.get(relay)
-    if (timer) {
-      clearTimeout(timer)
-      this.expiries.delete(relay)
+    if (this.registered(relay)) {
+      this.retention.schedule(relay)
     }
   }
 
@@ -341,4 +326,16 @@ export class ProviderRelayHost {
       }
     }
   }
+}
+
+/** Opaque item keys a cut ack names; anything past the bounds is refused, not trimmed. */
+function relayCutKeys(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > RELAY_CUT_KEYS_MAX ||
+    !value.every((key) => typeof key === 'string' && key.length <= RELAY_CUT_KEY_MAX_CHARS)
+  ) {
+    throw new Error('Invalid relay cut keys')
+  }
+  return value
 }

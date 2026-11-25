@@ -7,6 +7,42 @@ import {
 } from './agent-session-process-identity-probe'
 import { findAgentSessionSpawnTokenProcesses } from './agent-session-spawn-token-process-scan'
 import { readEchoedAgentSessionSpawnToken } from './agent-session-spawn-token-readback'
+import {
+  keptRunningProviderRelayPid,
+  listProviderRelaysAtLaunch,
+  providerRelayInventoryComplete
+} from '../../../provider-relay/app-provider-relays'
+import {
+  providerOwnerHeldElsewhere,
+  providerOwnerProcessRows,
+  type ProviderOwnerProcessRows
+} from '../../../provider-relay/provider-relay-owner-ancestry'
+
+/**
+ * An owner still running under the terminal host is this app's to reattach, not an orphan to stop:
+ * it reads as unprovable, which recovery releases without signalling it.
+ */
+async function keptRunningProbe(
+  record: AgentSessionRecord,
+  hostId: string,
+  rows?: ProviderOwnerProcessRows
+): Promise<AgentSessionOwnerProbe | null> {
+  const owner = record.lease.ownerProcess
+  if (!owner) {
+    return null
+  }
+  await listProviderRelaysAtLaunch()
+  // Until every daemon has answered, the inventory may miss a kept agent; the process tree can't.
+  const kept =
+    keptRunningProviderRelayPid(record.sessionId) === owner.pid ||
+    (owner.hostId === hostId &&
+      process.platform !== 'win32' &&
+      !providerRelayInventoryComplete() &&
+      (await providerOwnerHeldElsewhere(owner.pid, rows)) === true)
+  return kept
+    ? { outcome: 'indeterminate', reason: 'owner kept running under the terminal host' }
+    : null
+}
 
 /** Probe previous owners with PID-reuse-safe evidence; unresolved ownership remains indeterminate. */
 export function createStructuredAgentSessionOwnerProbe(
@@ -15,6 +51,10 @@ export function createStructuredAgentSessionOwnerProbe(
   findSpawnTokenProcesses = findAgentSessionSpawnTokenProcesses
 ): (record: AgentSessionRecord) => Promise<AgentSessionOwnerProbe> {
   return async (record) => {
+    const kept = await keptRunningProbe(record, hostId)
+    if (kept) {
+      return kept
+    }
     const owner = record.lease.ownerProcess
     if (!owner) {
       const spawnToken = record.lease.reservedSpawnToken
@@ -62,9 +102,13 @@ export function createStructuredAgentSessionOwnerProbes(
       record: AgentSessionRecord
       owner: NonNullable<AgentSessionRecord['lease']['ownerProcess']>
     }[] = []
+    const rows = providerOwnerProcessRows()
     for (const record of records) {
       const owner = record.lease.ownerProcess
-      if (owner?.hostId === hostId) {
+      const kept = await keptRunningProbe(record, hostId, rows)
+      if (kept) {
+        results.set(record.sessionId, kept)
+      } else if (owner?.hostId === hostId) {
         localOwners.push({ record, owner })
       } else {
         results.set(record.sessionId, await probeOne(record))

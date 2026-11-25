@@ -8,6 +8,12 @@ import type { StructuredAgentSessionAdapter } from '../providers/structured-agen
 import { hostCanStartRecord } from '../providers/structured-agent-session-provider-support'
 import type { StructuredAgentRegistry } from '../providers/structured-agent-registry'
 import {
+  listProviderRelaysAtLaunch,
+  liveProviderRelayChats,
+  providerRelayChatsIdleStoppedThisRun,
+  providerRelayKeptFromLastRun
+} from '../../../provider-relay/app-provider-relays'
+import {
   structuredAgentSessionResumableSet,
   type StructuredAgentSessionResumableSet
 } from './structured-agent-session-restart-resume-set'
@@ -28,9 +34,10 @@ export function createStructuredAgentSessionRestartCandidateReader(deps: {
   movedOn: (marker: AgentSessionResumeMarker) => Promise<boolean>
   savedByNewerOrca: (sessionId: string) => boolean
 }): StructuredAgentSessionRestartCandidateReader {
-  return (markers, leaseState) =>
+  return async (markers, leaseState) =>
     structuredAgentSessionResumableSet({
-      markers,
+      // A chat whose agent kept working under the terminal host was never cut; it reattaches.
+      markers: await withoutKeptRunningChats(markers),
       getRecord: deps.getRecord,
       supportsRecord: (record) => hostCanStartRecord(deps, record),
       movedOn: deps.movedOn,
@@ -43,6 +50,25 @@ export function createStructuredAgentSessionRestartCandidateReader(deps: {
       },
       leaseState
     })
+}
+
+async function withoutKeptRunningChats(
+  markers: readonly AgentSessionResumeMarker[]
+): Promise<readonly AgentSessionResumeMarker[]> {
+  if (markers.length === 0) {
+    return markers
+  }
+  await listProviderRelaysAtLaunch()
+  const kept = liveProviderRelayChats()
+  const finished = providerRelayChatsIdleStoppedThisRun()
+  // Still held by the daemon, or already reattached: either way its agent never stopped. One the
+  // daemon idle-stopped had finished its work, so nothing was cut either.
+  return markers.filter(
+    (marker) =>
+      !kept.has(marker.sessionId) &&
+      !finished.has(marker.sessionId) &&
+      !providerRelayKeptFromLastRun(marker.sessionId)
+  )
 }
 
 /** Listing skips newer chats; pre-send must retain them so refused sends preserve their offers. */

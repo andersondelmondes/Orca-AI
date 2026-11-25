@@ -1,0 +1,250 @@
+import type { DaemonClient } from '../daemon/transport/client/daemon-client'
+import type { ProviderRelayInfo } from '../daemon/protocol/daemon-provider-relay-protocol'
+import { withTimeout } from '../../shared/concurrency/promise-timeout-fallback'
+import { providerRelayChannel, type ProviderRelayChannel } from './provider-relay-channel'
+import { readFile } from 'node:fs/promises'
+import { spawnTokenFromEnvironBlock } from '../runtime/agent-session/ownership/agent-session-spawn-token-readback'
+
+const LIST_TIMEOUT_MS = 3_000
+/** Launch waits this long for the daemon before treating its relays as unknown (not absent). */
+const DAEMON_WAIT_MS = 10_000
+
+export type KeptProviderRelay = { channel: ProviderRelayChannel; info: ProviderRelayInfo }
+
+/** Relays the daemons kept for chats while no app was attached, found once per launch. */
+const listed = new Map<string, KeptProviderRelay>()
+let listing: Promise<void> | null = null
+let firstListing: Promise<void> | null = null
+let complete = false
+/** After a daemon didn't answer, callers use what is known until this; then one asks again. */
+let retryAt = 0
+const RETRY_AFTER_MS = 30_000
+
+/** Chats whose detached agent the daemon idle-stopped: it stops only work that had ended, so
+ *  nothing of theirs was cut and restart offers leave them alone. */
+const idleStoppedThisRun = new Set<string>()
+
+/** The kept agent's own spawn token, so its reattach records the identity the process carries. */
+const spawnTokens = new Map<string, string>()
+
+/** Agent integrations this build can reattach; a relay of any other is ended at launch. */
+const reattachableAgents = new Set<string>()
+
+/** Integrations whose open works on an ended agent: handed one once, to show its unread output. */
+const opensEndedAgents = new Set<string>()
+
+export function registerReattachableProviderRelayAgent(
+  agent: string,
+  options: { opensEnded?: boolean } = {}
+): void {
+  reattachableAgents.add(agent)
+  if (options.opensEnded) {
+    opensEndedAgents.add(agent)
+  }
+}
+
+/** Output the agent printed that no app took. */
+export function keptProviderRelayUnread(info: ProviderRelayInfo): boolean {
+  return info.nextSeq - 1 > info.ackedSeq
+}
+
+export function providerRelayAgentOpensEnded(agent: string | null): boolean {
+  return agent !== null && opensEndedAgents.has(agent)
+}
+
+/**
+ * Its agent still runs, or ended with unread output its integration can open an ended agent to
+ * show. Any other ended agent can't answer a reattach's open: its chat recovers as ended.
+ */
+export function keptProviderRelayOutstanding(info: ProviderRelayInfo): boolean {
+  return (
+    info.exit === null ||
+    (providerRelayAgentOpensEnded(info.agent) && keptProviderRelayUnread(info))
+  )
+}
+
+/** Outstanding, with a process to attach to. */
+export function keptProviderRelayAttachable(
+  info: ProviderRelayInfo
+): info is ProviderRelayInfo & { pid: number } {
+  return info.pid !== null && keptProviderRelayOutstanding(info)
+}
+
+/**
+ * A relay someone else is attached to belongs to another running app. One this build can't
+ * reattach (left by a newer build) is ended, so its chat recovers as today and never gets a second
+ * agent beside the kept one.
+ */
+async function keep(channel: ProviderRelayChannel, relays: readonly ProviderRelayInfo[]) {
+  for (const info of relays) {
+    if (!info.attached && info.agent !== null && !reattachableAgents.has(info.agent)) {
+      await channel.close(info.relayId).catch(() => {})
+      continue
+    }
+    if (!info.attached && info.chatKey) {
+      listed.set(info.chatKey, { channel, info })
+      if (info.exit?.idleStopped) {
+        idleStoppedThisRun.add(info.chatKey)
+      }
+      const token = info.pid !== null && info.exit === null ? await readSpawnToken(info.pid) : null
+      if (token) {
+        spawnTokens.set(info.chatKey, token)
+      }
+    }
+  }
+}
+
+async function readSpawnToken(pid: number): Promise<string | null> {
+  if (process.platform !== 'linux') {
+    return null
+  }
+  return readFile(`/proc/${pid}/environ`, 'utf-8').then(spawnTokenFromEnvironBlock, () => null)
+}
+
+/** Linux only (where identity probes read it back); elsewhere the start time proves identity. */
+export function keptProviderRelaySpawnToken(chatKey: string): string | null {
+  return listed.has(chatKey) ? (spawnTokens.get(chatKey) ?? null) : null
+}
+
+async function listOne(client: DaemonClient): Promise<boolean> {
+  const identity = client.getDaemonIdentity()
+  // A disconnected client's daemon is unknown, not one without relays.
+  if (!identity?.providerRelay) {
+    return identity !== null
+  }
+  const channel = providerRelayChannel(client)
+  const result = await withTimeout(
+    channel.list(LIST_TIMEOUT_MS).catch(() => null),
+    LIST_TIMEOUT_MS,
+    null
+  )
+  if (result) {
+    await keep(channel, result.relays)
+  }
+  return result !== null
+}
+
+/**
+ * One `relayList` per daemon. Callers wait for the first listing only; a daemon that didn't answer
+ * is asked again in the background by a later caller, so a slow start never reads as "no kept
+ * agents" for good and an unreachable daemon never stalls a chat open again.
+ */
+export function listKeptProviderRelays(clients: () => Promise<DaemonClient[]>): Promise<void> {
+  if (!listing && !complete && Date.now() >= retryAt) {
+    listing = (async () => {
+      const all = await withTimeout(
+        clients().catch(() => null),
+        DAEMON_WAIT_MS,
+        null
+      )
+      const answered = all ? await Promise.all(all.map(listOne)) : [false]
+      if (answered.includes(false)) {
+        retryAt = Date.now() + RETRY_AFTER_MS
+      } else {
+        complete = true
+      }
+      listing = null
+    })()
+    firstListing ??= listing
+  }
+  return firstListing ?? Promise.resolve()
+}
+
+/** Every daemon answered a listing, so a kept agent not in it isn't kept. */
+export function providerRelayInventoryComplete(): boolean {
+  return complete
+}
+
+export function providerRelayChatsIdleStoppedThisRun(): ReadonlySet<string> {
+  return idleStoppedThisRun
+}
+
+export function keptProviderRelay(chatKey: string): KeptProviderRelay | undefined {
+  return listed.get(chatKey)
+}
+
+/** Chats whose agent the daemon still holds for them; restart offers must leave these alone. */
+export function liveKeptProviderRelayChats(): ReadonlySet<string> {
+  const live = new Set<string>()
+  for (const [chatKey, relay] of listed) {
+    if (keptProviderRelayOutstanding(relay.info)) {
+      live.add(chatKey)
+    }
+  }
+  return live
+}
+
+export function forgetKeptProviderRelay(chatKey: string, relay: KeptProviderRelay): void {
+  if (listed.get(chatKey) === relay) {
+    listed.delete(chatKey)
+  }
+}
+
+/** Asks the relay's daemon again: still running (keep it), or proven ended or gone. */
+export async function recheckKeptProviderRelay(
+  chatKey: string,
+  relay: KeptProviderRelay
+): Promise<'live' | 'gone' | 'unknown'> {
+  const result = await withTimeout(
+    relay.channel.list(LIST_TIMEOUT_MS).catch(() => null),
+    LIST_TIMEOUT_MS,
+    null
+  )
+  if (!result) {
+    // An unreachable daemon with a dead agent is as gone as a daemon that says so.
+    if (relay.info.pid === null || !processProvenGone(relay.info.pid)) {
+      return 'unknown'
+    }
+    forgetKeptProviderRelay(chatKey, relay)
+    return 'gone'
+  }
+  const now = result.relays.find((info) => info.relayId === relay.info.relayId)
+  if (now && now.exit === null) {
+    return 'live'
+  }
+  forgetKeptProviderRelay(chatKey, relay)
+  return 'gone'
+}
+
+/** Only ESRCH proves absence; "can't tell" keeps the agent. */
+function processProvenGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return false
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'ESRCH'
+  }
+}
+
+/** The pid of the chat's agent the daemon kept running, until this app reattaches it. */
+export function keptRunningProviderRelayPid(chatKey: string): number | null {
+  const relay = keptProviderRelay(chatKey)
+  return relay && keptProviderRelayOutstanding(relay.info) ? relay.info.pid : null
+}
+
+/** Ended relays found at launch are dropped once their chat cold-resumes. */
+/** `keepUnread`: output no app took stays with the daemon (it expires there); a deleted chat drops it. */
+export function dropListedProviderRelay(chatKey: string, keepUnread = false): void {
+  const relay = keptProviderRelay(chatKey)
+  if (relay) {
+    forgetKeptProviderRelay(chatKey, relay)
+    if (!keepUnread || !keptProviderRelayUnread(relay.info)) {
+      void relay.channel.close(relay.info.relayId).catch(() => {})
+    }
+  }
+}
+
+/** Chats whose agent this app reattached from the last run; it stays true after that agent ends. */
+const reattachedFromLastRun = new Set<string>()
+
+export function noteProviderRelayReattachedFromLastRun(chatKey: string): void {
+  reattachedFromLastRun.add(chatKey)
+}
+
+/**
+ * The last run's writer for this chat was kept, not stopped by its quit: still held by the daemon,
+ * or reattached by this app (even if a Stop has ended it since). Its turns ended here, never by quit.
+ */
+export function providerRelayKeptFromLastRun(chatKey: string): boolean {
+  return reattachedFromLastRun.has(chatKey) || keptRunningProviderRelayPid(chatKey) !== null
+}

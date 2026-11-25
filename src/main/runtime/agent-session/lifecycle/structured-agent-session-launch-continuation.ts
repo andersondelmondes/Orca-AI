@@ -7,6 +7,13 @@ import { previousAgentSessionRuntimeStartedAt } from '../records/agent-session-r
 import { agentSessionRuntimeIncarnation } from '../records/agent-session-runtime-attribution'
 import type { AgentSessionRecordStore } from '../records/agent-session-record-store'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/host/structured-agent-session-host'
+import {
+  listProviderRelaysAtLaunch,
+  liveProviderRelayChats,
+  providerRelayChatsIdleStoppedThisRun
+} from '../../../provider-relay/app-provider-relays'
+import { mapWithConcurrency } from '../../../../shared/concurrency/map-with-concurrency'
+import type { KeptAgentRebind } from '../../../native-chat/agent-session-wire/startup/structured-agent-session-kept-agent'
 
 export const STRUCTURED_AGENT_SESSION_LAUNCH_CONTINUATION_OWNER =
   'trusted-local:launch-continuation'
@@ -40,15 +47,44 @@ export type StructuredAgentSessionLaunchContinuationDeps = {
   /** When the run that just ended started; unknown when no earlier run left a record. */
   previousRunStartedAt: () => Promise<number | undefined>
   resumeWorkOnRestart: () => boolean
+  /** Chats whose agent the terminal host kept running; they were never cut and reattach live. */
+  keptRunning?: () => Promise<ReadonlySet<string>>
+  /** Chats whose detached agent the terminal host idle-stopped after its work ended: not cut. */
+  finishedWhileDetached?: () => ReadonlySet<string>
+  rebindKeptAgent?: (sessionId: string) => Promise<KeptAgentRebind>
 }
+
+/** Reattaches are cheap (no agent starts), but a burst of them still shares the startup. */
+const KEPT_REBIND_CONCURRENCY = 4
 
 export async function continueStructuredAgentSessionsAtLaunch(
   deps: StructuredAgentSessionLaunchContinuationDeps,
   onReserved: (rows: StructuredAgentSessionResumeCandidate[]) => void = () => {}
 ): Promise<StructuredAgentSessionLaunchContinuation> {
+  const listedKept = (await deps.keptRunning?.().catch(() => null)) ?? new Set<string>()
+  // Kept chats reattach before any restart offer runs; one whose agent ended meanwhile was cut
+  // after all and goes through the ordinary cold path below.
+  const kept = new Set<string>()
+  await mapWithConcurrency([...listedKept], KEPT_REBIND_CONCURRENCY, async (sessionId) => {
+    const rebound = await (
+      deps.rebindKeptAgent?.(sessionId) ?? Promise.resolve('unresolved')
+    ).catch((error: unknown) => {
+      console.warn('[agent-session] reattaching a kept chat agent failed', error)
+      return 'unresolved' as const
+    })
+    if (rebound !== 'gone') {
+      kept.add(sessionId)
+    }
+  })
+  const finished = deps.finishedWhileDetached?.() ?? new Set<string>()
   const heldByLastRun = deps.store
     .listHeldSessionIds()
-    .filter((sessionId) => deps.store.replacedRuntime(sessionId)?.runtime !== undefined)
+    .filter(
+      (sessionId) =>
+        !kept.has(sessionId) &&
+        !finished.has(sessionId) &&
+        deps.store.replacedRuntime(sessionId)?.runtime !== undefined
+    )
   const offers = async () => [
     ...(await deps.restartResume.list()),
     ...(await deps.restartResume.listFailures())
@@ -130,7 +166,13 @@ export function structuredAgentSessionLaunchContinuationDeps(
             host.deps.journalDatabase.stateDirectory,
             agentSessionRuntimeIncarnation()
           ),
-        resumeWorkOnRestart
+        resumeWorkOnRestart,
+        keptRunning: async () => {
+          await listProviderRelaysAtLaunch()
+          return liveProviderRelayChats()
+        },
+        finishedWhileDetached: providerRelayChatsIdleStoppedThisRun,
+        rebindKeptAgent: host.mutations.rebindKeptAgent
       }
     : undefined
 }

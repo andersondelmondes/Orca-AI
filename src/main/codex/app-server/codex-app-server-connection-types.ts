@@ -40,5 +40,18 @@ export type CodexAppServerConnection = {
   readonly closeResult?: ProviderProcessCloseResult | null
   /** The root exited, but the forced kill of its process tree could not prove the tree gone. */
   readonly processTreeUnproven?: boolean
+  /** Present when the terminal daemon runs this app-server for the chat. */
+  readonly relay?: {
+    /** It kept running from before this app started; its thread is already loaded and live. */
+    readonly reattached: boolean
+    /** Lets the kept output through once the chat can route it. */
+    releaseOutput: () => void
+    /** Work the daemon saw end while no app was attached, keyed per marker group. */
+    endedWork: () => Record<string, string[][]> | undefined
+    /** Work the daemon carried open across the restart, keyed per marker group. */
+    openWork: () => Record<string, string[][]> | undefined
+    /** Handed to the daemon at quit: the agent runs on, so its session ends without final rows. */
+    handedOff: () => boolean
+  }
 }
 import type { ProviderProcessCloseResult } from '../../provider-process/provider-process-close'
