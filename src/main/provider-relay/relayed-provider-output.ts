@@ -1,8 +1,9 @@
 import type { Readable } from 'node:stream'
 import { jsonProperty } from '../../shared/json-stream/json-value-property'
-import type { ProviderRelayDataEvent } from '../daemon/protocol/daemon-provider-relay-protocol'
+import type * as RelayProtocol from '../daemon/protocol/daemon-provider-relay-protocol'
 import { RelayedProviderConsumption } from './relayed-provider-consumption'
 import { boundedCutKeys } from './relayed-provider-cut-keys'
+import { RelayedProviderKeptLines, relayHandOffWaitMs } from './relayed-provider-kept-lines'
 import type { RelayedProviderContinuation } from './relayed-provider-continuation'
 import { withTimeout } from '../../shared/concurrency/promise-timeout-fallback'
 
@@ -20,13 +21,6 @@ const RELEASE_SLICE_CHARS = 64 * 1024
  * line is handed on, and names the seq of the earliest item still open. Acks stay below it, so a
  * reattach replays that item whole onto its own row (rows are keyed by the provider's own ids).
  */
-/** The longest the app's hand-offs (a quit's, all chats at once) wait in all for paused readers;
- *  lines one hasn't taken by then stay unacked and replay at the next launch. */
-const HAND_OFF_READER_WAIT_MS = 2_000
-let handOffDeadline: number | null = null
-const handOffWaitMs = (): number =>
-  Math.max(0, (handOffDeadline ??= Date.now() + HAND_OFF_READER_WAIT_MS) - Date.now())
-
 export type ProviderRelayAckFloor = {
   observe: (seq: number, line: string) => void
   /** The first line still needed after a crash, for an ack covering lines through `through`;
@@ -34,6 +28,9 @@ export type ProviderRelayAckFloor = {
   floor: (through?: number, released?: number) => number | null
   /** True once after the floor rose past an open item's start on purpose (its replay will be cut). */
   tookCut?: () => boolean
+  /** A forced ack (the daemon's file cap) released everything through `seq`: items it held that
+   *  started there can't be kept whole any more, so they hold nothing from now on. */
+  released?: (seq: number) => void
   /** The items a cut now splits, as the continuation keys them; a reattach moves exactly those.
    *  `through`: a release lets go of lines through it, splitting items open there too. */
   cutKeys?: (through?: number) => string[]
@@ -68,6 +65,7 @@ type OutputOptions = {
 export class RelayedProviderOutput {
   /** The agent's answer to the first client's `initialize`, when the relay was reattached. */
   initializeLine: string | null = null
+  readonly kept = new RelayedProviderKeptLines()
   /** Highest data seq handed on or held; spool lines at or below it are already seen. */
   private deliveredSeq = 0
   /** Highest data seq actually handed on; the next attach and every ack start here. */
@@ -121,11 +119,12 @@ export class RelayedProviderOutput {
       this.held = []
       this.releasedTo = 0
     }
+    this.kept.lines.clear()
     this.deliveredSeq = this.pushedSeq
     return this.pushedSeq
   }
 
-  line(event: ProviderRelayDataEvent['event'], seq: number, line: string): void {
+  line(event: RelayProtocol.ProviderRelayDataEvent['event'], seq: number, line: string): void {
     if (this.stopped) {
       return
     }
@@ -133,6 +132,10 @@ export class RelayedProviderOutput {
       this.initializeLine = line
       this.preambleArrived?.()
       return
+    }
+    // A fresh spawn's re-sent kept lines after a dropped stream are never read, so never held.
+    if (event === 'relayKept') {
+      return void (this.kept.take(this.held !== null, seq, line) && this.preambleArrived?.())
     }
     if (event === 'relayPending') {
       if (!this.deliveredPending.has(seq)) {
@@ -149,14 +152,18 @@ export class RelayedProviderOutput {
   }
 
   /**
-   * The attach reply comes on the control socket and its preamble (the initialize answer and held
-   * requests) on the stream socket, and nothing orders the two: resolves once the preamble the
-   * reply names is here, or after `timeoutMs` (a stream that dropped reattaches anyway).
+   * The attach reply comes on the control socket and its preamble (the initialize answer, held
+   * requests and kept lines) on the stream socket, and nothing orders the two: resolves once the preamble the
+   * reply names is here, or after `timeoutMs` (a stream that dropped reattaches anyway). `kept`:
+   * the attach asked for kept lines, so it waits for those it names too.
    */
-  awaitPreamble(initialize: boolean, pendingSeqs: readonly number[], timeoutMs: number) {
+  awaitPreamble(attach: RelayProtocol.ProviderRelayAttachResult, timeoutMs: number, kept = false) {
+    const { initializeResultSent: initialize, pending: pendingSeqs } = attach
+    const keptSeqs = kept ? (attach.kept ?? []).map((line) => line.seq) : []
     const here = (): boolean =>
       (!initialize || this.initializeLine !== null) &&
-      pendingSeqs.every((seq) => this.deliveredPending.has(seq))
+      pendingSeqs.every((seq) => this.deliveredPending.has(seq)) &&
+      keptSeqs.every((seq) => this.kept.lines.has(seq))
     if (here()) {
       return Promise.resolve()
     }
@@ -219,7 +226,7 @@ export class RelayedProviderOutput {
 
   /** Before a hand-off: streamed text is saved first, so the last ack covers every line handed on
    *  (a cut item isn't kept whole, so a replay of a line the journal holds would show it twice). */
-  async flush(waitMs = handOffWaitMs()): Promise<void> {
+  async flush(waitMs = relayHandOffWaitMs()): Promise<void> {
     // A reader paused by its sink takes its buffered lines once that drains; they count too.
     await this.allTaken(waitMs)
     this.askedThrough = Math.max(this.askedThrough, this.deliveredSeq)
@@ -369,6 +376,7 @@ export class RelayedProviderOutput {
         this.keptFrom = keepFrom
         if (force && keepFrom === null) {
           this.releasedThrough = Math.max(this.releasedThrough, target)
+          this.options.ackFloor?.released?.(target)
         }
         // The daemon let kept lines go at a cap: they are given up, as a cut it records.
         const acked = seqOf(jsonProperty(reply, 'ackedThrough'))
@@ -377,6 +385,7 @@ export class RelayedProviderOutput {
         if (released > this.releasedThrough) {
           // keptFrom stays: the daemon still keeps, so the next ack without a floor must reach it.
           this.releasedThrough = released
+          this.options.ackFloor?.released?.(released)
           // The next ack records it as a cut naming exactly what it split, maybe nothing.
           this.pendingCut = true
           this.scheduleAck()

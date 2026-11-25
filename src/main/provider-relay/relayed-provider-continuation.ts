@@ -21,8 +21,11 @@ export type ProviderRelayItemContinuation = {
   finish?(line: string, tag: string): string[]
   /** The attach's open-work groups (keys as the daemon carries them) every streamed item lives in. */
   openGroup?: string | readonly string[]
-  /** Whether a cut-named item not yet seen may still resume under the attach's open work; without
-   *  it, every named item is awaited. */
+  /** The open work, keys as JSON, a provider reads from the attach itself (used for `openGroup`'s);
+   *  null: none, so only a daemon cut engages the continuation. */
+  openAt?(result: ProviderRelayAttachResult): string[] | null
+  /** Whether a cut-named item not yet seen may still resume under the attach's open work (read
+   *  after `openAt`); without it, every named item is awaited. */
   awaits?(key: string): boolean
   /** The key, as JSON, of the open work this line ends, if any. */
   settles?(line: string): string | null
@@ -128,8 +131,10 @@ export function attachContinuation(
   result: ProviderRelayAttachResult
 ): RelayedProviderContinuation | null {
   const groups = typeof hook.openGroup === 'string' ? [hook.openGroup] : (hook.openGroup ?? [])
-  const carried = groups.flatMap((group) => result.openWork?.[group] ?? [])
-  const open = carried.length > 0 ? carried : null
+  const carried = hook.openAt
+    ? hook.openAt(result)
+    : groups.flatMap((group) => result.openWork?.[group] ?? []).map((key) => JSON.stringify(key))
+  const open = carried?.length ? carried : null
   // Only a replay that really starts inside a cut item engages it; open work then bounds it.
   if (fromSeq <= 0 || result.truncatedThrough === undefined) {
     return null
@@ -139,7 +144,7 @@ export function attachContinuation(
     relayId,
     result.truncatedThrough ?? fromSeq,
     result.replayThroughSeq,
-    open && new Set(open.map((key) => JSON.stringify(key))),
+    open && new Set(open),
     result.cutKeys ? new Set(result.cutKeys) : null
   )
 }

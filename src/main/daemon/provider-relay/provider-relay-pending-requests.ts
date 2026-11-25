@@ -1,9 +1,10 @@
-import type { ProviderRelayRecord } from '../protocol/daemon-provider-relay-protocol'
 import { ProviderRelayAnsweredRequests } from './provider-relay-answered-requests'
 import {
   leadingJsonEnvelope,
   type LeadingProperty
 } from '../../../shared/json-stream/json-rpc-record-prefix'
+import type { ProviderRelayRecord } from '../protocol/daemon-provider-relay-protocol'
+import { ProviderRelayKeptState } from './provider-relay-kept-state'
 
 type JsonObject = Record<string, unknown>
 
@@ -83,7 +84,13 @@ export class ProviderRelayPendingRequests {
   workMethods: ReadonlySet<string> = new Set()
   /** Those requests still unanswered, by id. */
   readonly working = new Set<string>()
+  /** Session state kept for the next attach, as `relaySpawn` named it. */
+  readonly kept = new ProviderRelayKeptState()
 
+  /** Held requests whose answer from the app is being written. */
+  private readonly writing = new Set<string>()
+  /** Writes a line to the agent while no app is attached; false while one is. */
+  toAgent: ((line: string) => boolean) | null = null
   /** Spooled requests already answered, resolved or replaced, so a replay never asks again. */
   readonly answered: ProviderRelayAnsweredRequests
 
@@ -106,7 +113,16 @@ export class ProviderRelayPendingRequests {
     this.pendingChars = 0
   }
 
+  /** Answers a request the keep spec gives a fixed reply, while no app is attached to. */
+  private answerItself(method: string, id: unknown): boolean {
+    const result = this.kept.reply(method)
+    const line = `${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`
+    return result !== undefined && this.toAgent?.(line) === true
+  }
+
   private hold(key: string, record: ProviderRelayRecord): void {
+    // Re-sent under its id: an answer once being written (maybe failed) is not this one's.
+    this.writing.delete(key)
     this.release(key)
     this.pending.set(key, record)
     this.pendingChars += record.line.length
@@ -114,7 +130,10 @@ export class ProviderRelayPendingRequests {
 
   /** The agent is owed this many answers that it should wait for before saying more. */
   get full(): boolean {
-    return this.pending.size >= MAX_PENDING_REQUESTS || this.pendingChars >= MAX_PENDING_CHARS
+    return (
+      this.pending.size >= MAX_PENDING_REQUESTS ||
+      this.pendingChars + this.kept.chars >= MAX_PENDING_CHARS
+    )
   }
 
   private release(key: string): void {
@@ -132,6 +151,7 @@ export class ProviderRelayPendingRequests {
    * exactly as the client will read it.
    */
   observeAgentLine(record: ProviderRelayRecord): void {
+    this.kept.observeAgentLine(record)
     if (!this.mayClassify(record.line)) {
       return
     }
@@ -147,7 +167,10 @@ export class ProviderRelayPendingRequests {
       }
     } else if (typeof method === 'string') {
       const key = rpcId(message.id)
-      if (key) {
+      if (key && this.answerItself(method, message.id)) {
+        // Answered already, so a replay never asks the app again.
+        this.answered.add(record.seq)
+      } else if (key) {
         this.hold(key, record)
       }
     } else if (type === 'control_request' || type === 'control_cancel_request') {
@@ -164,13 +187,14 @@ export class ProviderRelayPendingRequests {
       }
       if (key) {
         this.working.delete(key)
+        this.kept.observeAnswer(key, 'result' in message, record)
       }
     }
   }
 
   /** An answer this table waits for: the first initialize's, or a work request's. */
   private get awaitingAnswer(): boolean {
-    return this.awaitingInitialize || this.working.size > 0
+    return this.awaitingInitialize || this.working.size > 0 || this.kept.awaiting
   }
 
   private get awaitingInitialize(): boolean {
@@ -240,6 +264,7 @@ export class ProviderRelayPendingRequests {
         const record = key ? this.pending.get(key) : undefined
         if (key && record) {
           answered.push({ key, record })
+          this.writing.add(key)
         }
       }
       this.clientLinePartial = ''
@@ -257,9 +282,31 @@ export class ProviderRelayPendingRequests {
     return answered
   }
 
+  /** Once no app is attached: an app's cut-off line is ended (for the agent and for this table),
+   *  and held requests with a fixed reply are answered, but not one whose answer from the app is
+   *  still being written. */
+  answerHeld(): void {
+    this.clientLinePartial = ''
+    this.skippingClientLine = false
+    this.toAgent?.('')
+    const methods = this.kept.replyMethods
+    for (const [key, record] of methods.length > 0 ? this.pending : []) {
+      const named = methods.some((method) => record.line.includes(method))
+      const message = named && !this.writing.has(key) ? parseObject(record.line) : null
+      if (
+        message &&
+        typeof message.method === 'string' &&
+        this.answerItself(message.method, message.id)
+      ) {
+        this.release(key)
+      }
+    }
+  }
+
   /** The answers reached the agent's stdin; a request re-sent under the same id since then stays held. */
   releaseAnswered(answered: AnsweredRequest[]): void {
     for (const { key, record } of answered) {
+      this.writing.delete(key)
       if (this.pending.get(key) === record) {
         this.release(key)
       }
@@ -285,6 +332,7 @@ export class ProviderRelayPendingRequests {
       if (message.method === 'initialize' && this.initializeKey === null) {
         this.initializeKey = rpcId(message.id)
       }
+      this.kept.observeRequest(id, message.id, message.method, line)
       return null
     }
     if (message.type === 'control_request') {

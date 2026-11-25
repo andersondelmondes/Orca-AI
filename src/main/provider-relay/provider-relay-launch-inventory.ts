@@ -20,6 +20,9 @@ let complete = false
 let retryAt = 0
 const RETRY_AFTER_MS = 30_000
 
+/** Chats listed with a live or unread agent, with its spawn time; reattaching drops a chat from
+ *  `listed`, not from here. */
+const keptThisRun = new Map<string, number>()
 /** Chats whose detached agent the daemon idle-stopped: it stops only work that had ended, so
  *  nothing of theirs was cut and restart offers leave them alone. */
 const idleStoppedThisRun = new Set<string>()
@@ -83,6 +86,9 @@ async function keep(channel: ProviderRelayChannel, relays: readonly ProviderRela
     }
     if (!info.attached && info.chatKey) {
       listed.set(info.chatKey, { channel, info })
+      if (keptProviderRelayOutstanding(info)) {
+        keptThisRun.set(info.chatKey, info.spawnedAtMs)
+      }
       if (info.exit?.idleStopped) {
         idleStoppedThisRun.add(info.chatKey)
       }
@@ -153,6 +159,11 @@ export function listKeptProviderRelays(clients: () => Promise<DaemonClient[]>): 
 /** Every daemon answered a listing, so a kept agent not in it isn't kept. */
 export function providerRelayInventoryComplete(): boolean {
   return complete
+}
+
+/** Every chat a listing this run found an agent kept for, reattached since or not. */
+export function providerRelayChatsKeptThisRun(): ReadonlyMap<string, number> {
+  return keptThisRun
 }
 
 export function providerRelayChatsIdleStoppedThisRun(): ReadonlySet<string> {

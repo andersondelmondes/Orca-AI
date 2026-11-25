@@ -1,6 +1,7 @@
 import type { DaemonClient } from '../daemon/transport/client/daemon-client'
 import type {
   ProviderRelayDetachPolicy,
+  ProviderRelayKeepSpec,
   ProviderRelaySpawnSpec
 } from '../daemon/protocol/daemon-provider-relay-protocol'
 import type { ProviderRelayWorkMarkers } from './provider-relay-agent-markers'
@@ -65,6 +66,8 @@ export type ProviderRelayLaunch = {
   markers: ProviderRelayWorkMarkers
   /** Reattach only: lines this lets through while the rest wait for `releaseOutput()`. */
   passWhileHeld?: (line: string) => boolean
+  /** Session state the daemon keeps for the next attach; only a daemon that can keep it relays. */
+  keep?: ProviderRelayKeepSpec
 }
 
 export type RelayedProviderProcess = {
@@ -272,18 +275,16 @@ export async function launchRelayedProviderProcess(
   }
   const client = await connected(await route.current().catch(() => null))
   const spec = client ? spawnSpec(launch, client) : null
-  if (!client || !spec || !(await daemonReadsFolder(client, spec.cwd))) {
+  // Without kept state a reattach would have nothing to restore, so such a launch goes as today.
+  const keeps = !relay.keep || client?.getDaemonIdentity()?.providerRelayKeep === true
+  if (!client || !spec || !keeps || !(await daemonReadsFolder(client, spec.cwd))) {
     return null
   }
   const channel = providerRelayChannel(client)
   let spawned: Awaited<ReturnType<ProviderRelayChannel['spawn']>>
   try {
-    spawned = await channel.spawn(
-      spec,
-      relay.chatKey,
-      policyFor(relay.markers),
-      relay.markers.agent
-    )
+    const { chatKey, markers, keep } = relay
+    spawned = await channel.spawn(spec, chatKey, policyFor(markers), markers.agent, keep)
   } catch {
     // An unanswered spawn may still have started the agent; the daemon ends it once no one attaches.
     return null
