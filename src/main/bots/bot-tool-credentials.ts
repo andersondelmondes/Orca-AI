@@ -172,6 +172,12 @@ export function readBotToolCredential(folder: string, id: string): BotToolCreden
   }
 }
 
+/** The id's sign-in, `'locked'` when its saved value doesn't open on this computer, or null. */
+export function readBotToolSignIn(folder: string, id: string): BotToolOAuthEntry | 'locked' | null {
+  const stored = readSealed(folder)
+  return Object.hasOwn(stored, id) && !stored[id].entry ? 'locked' : oauthOf(entryOf(stored, id))
+}
+
 /** The sign-in a credential id holds, or null when it holds none or something else. */
 export function readBotToolOAuth(folder: string, id: string): BotToolOAuthEntry | null {
   return oauthOf(entryOf(readSealed(folder), id))
