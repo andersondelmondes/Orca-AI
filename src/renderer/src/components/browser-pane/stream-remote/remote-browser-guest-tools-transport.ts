@@ -27,7 +27,11 @@ export function createRemoteBrowserGuestToolsTransport({
   remotePage: () => string | null
   inputQueue: RemoteBrowserInputQueue
 }): BrowserGuestToolsTransport {
-  const awaitingSelections = new Set<AbortController>()
+  // Each wait's request, so a request-scoped cancel ends only that request's wait.
+  const awaitingSelections = new Map<AbortController, string | undefined>()
+  // Enables still queued behind earlier input: the host has no record of them yet, so a cancel
+  // retires them here and they never send.
+  const unsentEnables = new Set<{ requestId?: string; retired: boolean }>()
 
   const call = async <T>(
     method: string,
@@ -57,14 +61,24 @@ export function createRemoteBrowserGuestToolsTransport({
     })
 
   return {
-    setGrabMode: ({ enabled }) => {
+    setGrabMode: ({ enabled, requestId }) => {
       const page = remotePage()
+      const unsent = enabled ? { requestId, retired: false } : null
+      if (unsent) {
+        unsentEnables.add(unsent)
+      }
       return inInputOrder(async (): Promise<BrowserSetGrabModeResult> => {
+        if (unsent) {
+          unsentEnables.delete(unsent)
+          if (unsent.retired) {
+            return { ok: false, reason: 'not-ready' }
+          }
+        }
         try {
           return (
             (await call<BrowserSetGrabModeResult>(
               'browser.grab.setMode',
-              { enabled },
+              { enabled, requestId },
               { page }
             )) ?? {
               ok: false,
@@ -77,14 +91,14 @@ export function createRemoteBrowserGuestToolsTransport({
       })
     },
     // Not queued: it waits for a click, and the click must be able to reach the page meanwhile.
-    awaitGrabSelection: async ({ opId }): Promise<BrowserGrabResult> => {
+    awaitGrabSelection: async ({ opId, requestId }): Promise<BrowserGrabResult> => {
       const controller = new AbortController()
-      awaitingSelections.add(controller)
+      awaitingSelections.set(controller, requestId)
       try {
         return (
           (await call<BrowserGrabResult>(
             'browser.grab.await',
-            { opId },
+            { opId, requestId },
             { signal: controller.signal }
           )) ?? { opId, kind: 'error', reason: 'Guest not ready' }
         )
@@ -100,29 +114,43 @@ export function createRemoteBrowserGuestToolsTransport({
         awaitingSelections.delete(controller)
       }
     },
-    cancelGrab: async (): Promise<boolean> => {
+    cancelGrab: async ({ requestId }): Promise<boolean> => {
       const page = remotePage()
-      // A rearm during the round trip starts a new wait that this cancel must not end.
+      // A rearm during the round trip starts a new wait that this cancel must not end, and a
+      // retired request's cancel must not end the wait of the request that replaced it.
       const cancelledSelections = [...awaitingSelections]
+        .filter(([, waitRequestId]) => requestId === undefined || waitRequestId === requestId)
+        .map(([controller]) => controller)
+      let retiredUnsent = false
+      for (const unsent of unsentEnables) {
+        if (requestId === undefined || unsent.requestId === requestId) {
+          unsent.retired = true
+          retiredUnsent = true
+        }
+      }
       // Ask the host to settle the pick first; aborting alone would leave its overlay armed until the call closes.
-      const cancelled = await inInputOrder(() =>
-        call<{ cancelled: boolean }>('browser.grab.cancel', {}, { page })
-          .then((result) => result?.cancelled ?? false)
-          .catch(() => false)
+      // Not queued: an enable ahead of it in the queue waits for its page, and the host must see this
+      // cancel meanwhile so the enable never arms.
+      const cancelled = await call<{ cancelled: boolean }>(
+        'browser.grab.cancel',
+        { requestId },
+        { page }
       )
+        .then((result) => result?.cancelled ?? false)
+        .catch(() => false)
       for (const controller of cancelledSelections) {
         controller.abort()
       }
-      return cancelled
+      return cancelled || retiredUnsent
     },
-    captureSelectionScreenshot: ({ rect }) => {
+    captureSelectionScreenshot: ({ rect, selectionId }) => {
       const page = remotePage()
       return inInputOrder(async (): Promise<BrowserCaptureSelectionScreenshotResult> => {
         try {
           return (
             (await call<BrowserCaptureSelectionScreenshotResult>(
               'browser.grab.captureSelection',
-              { rect },
+              { rect, selectionId },
               { page }
             )) ?? { ok: false, reason: 'Guest not ready' }
           )
@@ -157,6 +185,18 @@ export function createRemoteBrowserGuestToolsTransport({
       })
       return result?.applied ?? false
     },
+    grabPickedElementPresent: async ({ selectionId, interactive }) => {
+      try {
+        return await call<boolean | null>('browser.grab.pickedPresent', {
+          selectionId,
+          interactive
+        })
+      } catch {
+        return null
+      }
+    },
+    // The host does not install a renderer-directed bare-key policy for a streamed viewer.
+    onGrabPolicyRetired: () => () => {},
     // The renderer sees every streamed key before the host, so no guest forwards chords back.
     onGrabModeToggle: () => () => {},
     onGrabActionShortcut: () => () => {}
