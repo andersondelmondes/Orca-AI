@@ -21,7 +21,11 @@ import {
   type AppRailItemId
 } from './AppRailButton'
 import { AppRailMoreMenu, useAppRailSlotCapacity } from './AppRailMoreMenu'
-import { AppRailCustomizeMenu, type AppRailCustomizeRow } from './AppRailCustomizeMenu'
+import {
+  AppRailCustomizeMenu,
+  type AppRailChecklistCarry,
+  type AppRailCustomizeRow
+} from './AppRailCustomizeMenu'
 import { AppRailAccountMenu } from './AppRailAccountMenu'
 import { partitionAppRail } from './app-rail-overflow'
 import { railItemOwningFocus } from './app-rail-focus-ownership'
@@ -119,6 +123,18 @@ export function AppRail({
         ? 'account'
         : null
   const [lastFocusedItem, setLastFocusedItem] = useState<AppRailItemId | null>(null)
+  // A checklist toggle that will swap "…" and More (one more page folds the rail, one fewer unfolds it) leaves its row
+  // here; the form that mounts in that swap reopens the checklist on it so editing carries on. It is bound to the
+  // write and the size it was made at, and is taken once, so an in-place or failed toggle, or a later resize, never
+  // reopens anything.
+  const [checklistCarry, setChecklistCarry] = useState<{
+    id: AppRailDestinationId
+    byPointer: boolean
+    shownKey: string
+    capacity: number
+    more: boolean
+  } | null>(null)
+  const releaseChecklistCarry = useCallback(() => setChecklistCarry(null), [])
   const tabStopItem =
     lastFocusedItem && renderedItems.includes(lastFocusedItem)
       ? lastFocusedItem
@@ -228,8 +244,36 @@ export function AppRail({
     label: destinationLabel(id),
     icon: destinationIcon(id, 14, undefined, 'size-3.5'),
     shown: shownDestinationSet.has(id),
-    onToggle: () => setRailDestinationShown(id, !shownDestinationSet.has(id))
+    onToggle: (byPointer) => {
+      const shown = !shownDestinationSet.has(id)
+      const nextShown = APP_RAIL_DESTINATION_IDS.filter((other) =>
+        other === id ? shown : shownDestinationSet.has(other)
+      )
+      const nextMore = partitionAppRail(nextShown.length, capacity).more
+      const carry =
+        nextMore === partition.more
+          ? null
+          : { id, byPointer, shownKey: nextShown.join(','), capacity, more: nextMore }
+      setChecklistCarry(carry)
+      void setRailDestinationShown(id, shown).then(() => {
+        // A write that didn't land leaves nothing to carry, even if the same change arrives later from elsewhere.
+        if (carry && selectShownRailDestinationsKey(useAppStore.getState()) !== carry.shownKey) {
+          setChecklistCarry((current) => (current === carry ? null : current))
+        }
+      })
+    }
   }))
+  // Only the swap this toggle causes: its write has landed, at the same size, and the slot took the other form.
+  const carryApplies =
+    checklistCarry !== null &&
+    checklistCarry.shownKey === shownDestinationsKey &&
+    checklistCarry.capacity === capacity &&
+    checklistCarry.more === partition.more
+  const checklist: AppRailChecklistCarry = {
+    reopenOn: carryApplies ? checklistCarry.id : null,
+    reopenedUnderPointer: carryApplies && checklistCarry.byPointer,
+    release: releaseChecklistCarry
+  }
   const openSettings = (): void => useAppStore.getState().openSettingsPage()
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -321,6 +365,7 @@ export function AppRail({
             <AppRailMoreMenu
               tabStop={tabStopItem === 'more'}
               customizeRows={customizeRows}
+              checklist={checklist}
               destinations={foldedDestinations.map((id) => ({
                 id,
                 label: destinationLabel(id),
@@ -332,7 +377,11 @@ export function AppRail({
               }))}
             />
           ) : (
-            <AppRailCustomizeMenu rows={customizeRows} tabStop={tabStopItem === 'customize'} />
+            <AppRailCustomizeMenu
+              rows={customizeRows}
+              tabStop={tabStopItem === 'customize'}
+              checklist={checklist}
+            />
           )}
         </div>
         <div className="flex flex-col items-center gap-2.5">
