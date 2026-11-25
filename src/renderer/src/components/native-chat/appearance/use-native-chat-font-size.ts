@@ -1,17 +1,72 @@
 import { useEffect, type RefObject } from 'react'
 import { chatFontSizeActionForEvent } from './native-chat-font-size'
 import { writeNativeChatFontSize } from './native-chat-font-size-write'
+import { noteChatWheelPinch } from '../native-chat-wheel-pinch'
 import { isWebClientLocation } from '@/app-shell/platform/web-client-location'
 import { getShortcutPlatform } from '@/lib/keyboard/shortcut-platform'
 import { useAppStore } from '../../../store/index'
 import { addAppKeyListener, removeAppKeyListener } from '@/lib/keyboard/app-keyboard-router'
 
+// Trackpad pinch emits many small deltas; one font-size step needs this much travel.
+const PINCH_STEP_DELTA = 12
+const PINCH_IDLE_RESET_MS = 250
+
 export function useNativeChatFontSize(
-  enabled: boolean,
-  rootRef?: RefObject<HTMLDivElement | null>
+  focused: boolean,
+  rootRef?: RefObject<HTMLDivElement | null>,
+  pinchActive: boolean = focused
 ): void {
   useEffect(() => {
-    if (!enabled || !isWebClientLocation()) {
+    if (!pinchActive) {
+      return
+    }
+    const root = rootRef?.current
+    if (!root) {
+      return
+    }
+    // Trackpad pinch arrives as ctrl+wheel. Claim it on the chat under the fingers, focused or not.
+    let accumulated = 0
+    let lastWheelAt = 0
+    const onWheel = (event: WheelEvent): void => {
+      if (
+        !event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        !Number.isFinite(event.deltaY) ||
+        event.deltaY === 0
+      ) {
+        return
+      }
+      if (!(event.target instanceof Node) || !root.contains(event.target)) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      noteChatWheelPinch()
+      if (
+        event.timeStamp - lastWheelAt > PINCH_IDLE_RESET_MS ||
+        Math.sign(accumulated) !== Math.sign(event.deltaY)
+      ) {
+        accumulated = 0
+      }
+      lastWheelAt = event.timeStamp
+      accumulated += event.deltaY
+      if (Math.abs(accumulated) < PINCH_STEP_DELTA) {
+        return
+      }
+      const action = accumulated < 0 ? 'increase' : 'decrease'
+      const steps = Math.floor(Math.abs(accumulated) / PINCH_STEP_DELTA)
+      accumulated %= PINCH_STEP_DELTA
+      for (let step = 0; step < Math.min(steps, 8); step++) {
+        void writeNativeChatFontSize(action)
+      }
+    }
+    root.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    return () => root.removeEventListener('wheel', onWheel, { capture: true })
+  }, [pinchActive, rootRef])
+
+  useEffect(() => {
+    if (!focused || !isWebClientLocation()) {
       return
     }
     const platform = getShortcutPlatform()
@@ -35,5 +90,5 @@ export function useNativeChatFontSize(
     }
     addAppKeyListener('keydown', onKeyDown)
     return () => removeAppKeyListener('keydown', onKeyDown)
-  }, [enabled, rootRef])
+  }, [focused, rootRef])
 }
