@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { defineFixture } from '../../../component-fixtures/component-fixture'
-import type { BotItemQuestionShape } from '../../../../../shared/bots/bot-item-ask'
+import {
+  botItemQuestionShape,
+  normalizeBotItemAsk,
+  type BotItemQuestionShape
+} from '../../../../../shared/bots/bot-item-ask'
 import { BotItemQuestionStep } from './BotItemQuestionStep'
 import type { BotItemQuestionSteps, BotItemQuickReplyActions } from './use-bot-item-question-steps'
 
@@ -208,4 +212,23 @@ export const longAnswerFolded = defineFixture({
       picked={['Beta first, then everyone after two weeks of feedback from the testers', null]}
     />
   )
+})
+
+// The agent wrote "(Recommended)" into the label too: stored as the flag, the chip shows its star once.
+const written = botItemQuestionShape({
+  ask: normalizeBotItemAsk({
+    questions: [
+      {
+        prompt: 'The new check flags one old warning. Waive it?',
+        options: [
+          { label: 'Waive; ship with it disclosed in the PR (Recommended)' },
+          { label: 'Fix it first' }
+        ]
+      }
+    ]
+  })
+})
+export const openWrittenRecommended = defineFixture({
+  width: 340,
+  render: () => <Card shape={written} picked={none(written)} />
 })
