@@ -130,6 +130,11 @@ const NATIVE_CHAT_AGENT_PROFILES: Record<NativeChatAgent, NativeChatAgentProfile
   codebuddy: {
     skillPrefix: '/',
     skillSourceOwner: 'codebuddy'
+  },
+  // ZCode invokes a `/name` mention by running its own Skill tool, so the text passes through.
+  zcode: {
+    skillPrefix: '/',
+    skillSourceOwner: 'zcode'
   }
 }
 
